@@ -9,9 +9,10 @@
  * Philip Taylor: http://philip.html5.org
  */
 
-/*
- * @namespace Namespace container for x3dom objects.
- */
+/**
+ * The Namespace container for x3dom objects.
+ * @namespace x3dom
+ * */
 var x3dom = {
     canvases : [],
 
@@ -21,20 +22,29 @@ var x3dom = {
     xhtmlNS  : 'http://www.w3.org/1999/xhtml'
 };
 
-/** @namespace the x3dom.nodeTypes namespace. */
+/**
+ * The x3dom.nodeTypes namespace.
+ * @namespace x3dom.nodeTypes
+ * */
 x3dom.nodeTypes = {};
 
-/** @namespace the x3dom.nodeTypesLC namespace. Stores nodetypes in lowercase */
+/**
+ * The x3dom.nodeTypesLC namespace. Stores nodetypes in lowercase
+ * @namespace x3dom.nodeTypesLC
+ * */
 x3dom.nodeTypesLC = {};
 
-/** @namespace the x3dom.components namespace. */
+/**
+ * The x3dom.components namespace.
+ * @namespace x3dom.components
+ * */
 x3dom.components = {};
 
 /** Cache for primitive nodes (Box, Sphere, etc.) */
 x3dom.geoCache = [];
 
 /** Stores information about Browser and hardware capabilities */
-x3dom.caps = { PLATFORM: navigator.platform, AGENT: navigator.userAgent };
+x3dom.caps = { PLATFORM: navigator.platform, AGENT: navigator.userAgent, RENDERMODE: "HARDWARE" };
 
 /** Registers the node defined by @p nodeDef.
 
@@ -82,6 +92,7 @@ x3dom.isX3DElement = function(node) {
  *	See Also:
  *		Douglas Crockford's essay on <prototypical inheritance at http://javascript.crockford.com/prototypal.html>.
  */
+// TODO; unify with defineClass, which does basically the same
 x3dom.extend = function(f) {
   function G() {}
   G.prototype = f.prototype || f;
@@ -147,6 +158,7 @@ function defineClass(parent, ctor, methods) {
     @return true or false
   */
 x3dom.isa = function(object, clazz) {
+    /*
 	if (!object || !object.constructor || object.constructor.superClass === undefined) {
 		return false;
 	}
@@ -164,6 +176,8 @@ x3dom.isa = function(object, clazz) {
         return false;
     }
     return f(object.constructor.superClass);
+    */
+    return (object instanceof clazz);
 };
 
 

@@ -20,16 +20,19 @@ x3dom.X3DDocument = function(canvas, ctx, settings) {
     this._scene = null;         // Scene root element
     this._viewarea = null;      // Viewport, handles rendering and interaction
     this.downloadCount = 0;     // Counter for objects to be loaded
+    this.previousDownloadCount = 0;
 
     // bag for pro-active (or multi-core-like) elements
     this._nodeBag = {
-        timer: [],          // TimeSensor (tick)
-        lights: [],         // Light
-        clipPlanes: [],     // ClipPlane
-        followers: [],      // X3DFollowerNode
-        trans: [],          // X3DTransformNode (for listening to CSS changes)
-        renderTextures: [], // RenderedTexture
-        viewarea: []        // Viewport (for updating camera navigation)
+        timer: [],                // TimeSensor (tick)
+        lights: [],               // Light
+        clipPlanes: [],           // ClipPlane
+        followers: [],            // X3DFollowerNode
+        trans: [],                // X3DTransformNode (for listening to CSS changes)
+        renderTextures: [],       // RenderedTexture
+        viewarea: [],             // Viewport (for updating camera navigation)
+        affectedPointingSensors: [] // all X3DPointingDeviceSensor currently activated (i.e., used for interaction),
+                                    // this list is maintained for efficient update / deactivation
     };
 
     this.onload = function () {};
@@ -141,6 +144,9 @@ x3dom.X3DDocument.prototype._setup = function (sceneDoc, uriDocs, sceneElemPos) 
                     node._cleanupGLObjects();
                 }
             }
+            else if (x3dom.isa(node, x3dom.nodeTypes.X3DPointingDeviceSensorNode)) {
+                cleanNodeBag(doc._nodeBag.affectedPointingSensors, node);
+            }
             else if (x3dom.isa(node, x3dom.nodeTypes.Texture)) {
                 node.shutdown();    // general texture might have video
             }
@@ -165,13 +171,26 @@ x3dom.X3DDocument.prototype._setup = function (sceneDoc, uriDocs, sceneElemPos) 
                 }
             }
 
-            if (nameSpace) {
+            //do not remove node from namespace if it was only "USE"d
+            if (nameSpace && !(domNode.getAttribute('use') || domNode.getAttribute('USE')))
+            {
                 nameSpace.removeNode(node._DEF);
             }
             node._xmlNode = null;
 
             delete domNode._x3domNode;
         }
+    }
+
+    function getParentNode(domNode) {
+        var parentNode = domNode.parentNode;
+
+        // move dom up if parent is metagroup
+        if ( parentNode.localName.toLowerCase() == "x3dommetagroup" ) {
+            parentNode = getParentNode(parentNode);
+        }
+
+        return parentNode;
     }
 
     // Test capturing DOM mutation events on the X3D subscene
@@ -188,14 +207,16 @@ x3dom.X3DDocument.prototype._setup = function (sceneDoc, uriDocs, sceneElemPos) 
                 doc.needRender = true;
             }
         },
-        
+
         onNodeRemoved: function(e) {
             var domNode = e.target;
             if (!domNode)
                 return;
 
-            if ('_x3domNode' in domNode.parentNode && '_x3domNode' in domNode) {
-                var parent = domNode.parentNode._x3domNode;
+            var parentNode = getParentNode(domNode);
+
+            if ('_x3domNode' in parentNode && '_x3domNode' in domNode) {
+                var parent = parentNode._x3domNode;
                 var child = domNode._x3domNode;
 
                 if (parent && child) {
@@ -247,21 +268,26 @@ x3dom.X3DDocument.prototype._setup = function (sceneDoc, uriDocs, sceneElemPos) 
                 }
             }
         },
-        
+
         onNodeInserted: function(e) {
             var child = e.target;
-            var parentNode = child.parentNode;
-            
+            var parentNode = getParentNode(child);
+
             // only act on x3dom nodes, ignore regular HTML
             if ('_x3domNode' in parentNode) {
-				if (parentNode.tagName && parentNode.tagName.toLowerCase() == 'inline') {
+				if (parentNode.tagName && parentNode.tagName.toLowerCase() == 'inline' ||
+                    parentNode.tagName.toLowerCase() == 'multipart') {
                     // do nothing
 				}
 				else {
 					var parent = parentNode._x3domNode;
-					
+
 					if (parent && parent._nameSpace && (child instanceof Element)) {
-                        removeX3DOMBackendGraph(child);    // not really necessary...
+
+                        if (x3dom.caps.DOMNodeInsertedEvent_perSubtree)
+                        {
+                            removeX3DOMBackendGraph(child);    // not really necessary...
+                        }
 
                         var newNode = parent._nameSpace.setupTree(child);
 
@@ -301,7 +327,7 @@ x3dom.X3DDocument.prototype._setup = function (sceneDoc, uriDocs, sceneElemPos) 
 
     // create and add the NodeNameSpace
     var nameSpace = new x3dom.NodeNameSpace("scene", doc);
-    
+
     var scene = nameSpace.setupTree(sceneElem);
 
     // link scene
@@ -349,7 +375,7 @@ x3dom.X3DDocument.prototype.onPick = function (ctx, x, y) {
     if (!ctx || !this._viewarea) {
         return;
     }
-	
+
     ctx.pickValue(this._viewarea, x, y, 1);
 };
 
@@ -357,7 +383,7 @@ x3dom.X3DDocument.prototype.onPickRect = function (ctx, x1, y1, x2, y2) {
     if (!ctx || !this._viewarea) {
         return [];
     }
-	
+
     return ctx.pickRect(this._viewarea, x1, y1, x2, y2);
 };
 
@@ -371,12 +397,12 @@ x3dom.X3DDocument.prototype.onMove = function (ctx, x, y, buttonState) {
     this._viewarea.onMove(x, y, buttonState);
 };
 
-x3dom.X3DDocument.prototype.onMoveView = function (ctx, translation, rotation) {
+x3dom.X3DDocument.prototype.onMoveView = function (ctx,evt, touches, translation, rotation) {
     if (!ctx || !this._viewarea) {
         return;
     }
 
-    this._viewarea.onMoveView(translation, rotation);
+    this._scene.getNavigationInfo()._impl.onTouchDrag(this._viewarea, evt, touches, translation, rotation);
 };
 
 x3dom.X3DDocument.prototype.onDrag = function (ctx, x, y, buttonState) {
@@ -387,6 +413,16 @@ x3dom.X3DDocument.prototype.onDrag = function (ctx, x, y, buttonState) {
     if (this._viewarea._scene._vf.doPickPass)
         ctx.pickValue(this._viewarea, x, y, buttonState);
     this._viewarea.onDrag(x, y, buttonState);
+};
+
+x3dom.X3DDocument.prototype.onWheel = function (ctx, x, y, originalY) {
+    if (!ctx || !this._viewarea) {
+        return;
+    }
+
+    if (this._viewarea._scene._vf.doPickPass)
+        ctx.pickValue(this._viewarea, x, originalY, 0);
+    this._viewarea.onDrag(x, y, 2);
 };
 
 x3dom.X3DDocument.prototype.onMousePress = function (ctx, x, y, buttonState) {
@@ -467,14 +503,11 @@ x3dom.X3DDocument.prototype.onKeyUp = function(keyCode)
         case 13: /* return */
             x3dom.toggleFullScreen();
             break;
-        case 27: /* ESC */
-            window.history.back(); // emulate good old ESC key
-            break;
         case 33: /* page up */
             stack = this._scene.getViewpoint()._stack;
 
             if (stack) {
-                stack.switchTo('next');
+                stack.switchTo('prev');
             }
             else {
                 x3dom.debug.logError ('No valid ViewBindable stack.');
@@ -484,7 +517,27 @@ x3dom.X3DDocument.prototype.onKeyUp = function(keyCode)
             stack = this._scene.getViewpoint()._stack;
 
             if (stack) {
-                stack.switchTo('prev');
+                stack.switchTo('next');
+            }
+            else {
+                x3dom.debug.logError ('No valid ViewBindable stack.');
+            }
+            break;
+        case 35: /* end */
+            stack = this._scene.getViewpoint()._stack;
+
+            if (stack) {
+                stack.switchTo('last');
+            }
+            else {
+                x3dom.debug.logError ('No valid ViewBindable stack.');
+            }
+            break;
+        case 36: /* home */
+            stack = this._scene.getViewpoint()._stack;
+
+            if (stack) {
+                stack.switchTo('first');
             }
             else {
                 x3dom.debug.logError ('No valid ViewBindable stack.');
@@ -591,7 +644,12 @@ x3dom.X3DDocument.prototype.onKeyPress = function(charCode)
             nav.setType("lookat", this._viewarea);
             break;
         case 109: /* m, toggle "points" attribute */
-            this._viewarea._points = ++this._viewarea._points % 3;
+            //"0" = triangles
+            //"1" = points
+            //"2" = lines
+	    //TODO: here, as option "2", we originally rendered triangle meshes as lines
+            //	    instead, we should create a separate line buffer and render it
+            this._viewarea._points = ++this._viewarea._points % 2;
             break;
         case 110: /* n, turntable */
             nav.setType("turntable", this._viewarea);
@@ -637,15 +695,15 @@ x3dom.X3DDocument.prototype.onKeyPress = function(charCode)
             (function() {
                 var viewpoint = that._viewarea._scene.getViewpoint();
                 var mat_view = that._viewarea.getViewMatrix().inverse();
-    			
+
     			var rotation = new x3dom.fields.Quaternion(0, 0, 1, 0);
     			rotation.setValue(mat_view);
     			var rot = rotation.toAxisAngle();
     			var translation = mat_view.e3();
-    			
+
     			x3dom.debug.logInfo('\n&lt;Viewpoint position="' + translation.x.toFixed(5) + ' '
     			                    + translation.y.toFixed(5) + ' ' + translation.z.toFixed(5) + '" ' +
-    								'orientation="' + rot[0].x.toFixed(5) + ' ' + rot[0].y.toFixed(5) + ' ' 
+    								'orientation="' + rot[0].x.toFixed(5) + ' ' + rot[0].y.toFixed(5) + ' '
     								+ rot[0].z.toFixed(5) + ' ' + rot[1].toFixed(5) + '" \n\t' +
                                     'zNear="' + viewpoint.getNear().toFixed(5) + '" ' +
     								'zFar="' + viewpoint.getFar().toFixed(5) + '" ' +
@@ -669,4 +727,20 @@ x3dom.X3DDocument.prototype.shutdown = function(ctx)
         return;
     }
     ctx.shutdown(this._viewarea);
+};
+
+x3dom.X3DDocument.prototype.hasAnimationStateChanged = function () {
+    if (!this._viewarea) {
+        return false;
+    }
+
+    return this._viewarea.hasAnimationStateChanged();
+};
+
+x3dom.X3DDocument.prototype.isAnimating = function () {
+    if (!this._viewarea) {
+        return false;
+    }
+
+    return this._viewarea.isAnimating();
 };

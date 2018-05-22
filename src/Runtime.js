@@ -24,7 +24,8 @@
 
 // Global runtime
 /**
- * @namespace Namespace container for Runtime module
+ * Namespace container for Runtime module
+ * @namespace x3dom.runtime
  */
 x3dom.runtime = {};
 
@@ -310,7 +311,7 @@ x3dom.Runtime.prototype.getCameraToWorldCoordinatesMatrix = function() {
  * Returns the viewing ray for a given (x, y) position.
  *
  * Returns:
- * 		Line object
+ * 		Ray object
  */
 x3dom.Runtime.prototype.getViewingRay = function(x, y) {
     return this.canvas.doc._viewarea.calcViewRay(x, y);
@@ -373,13 +374,16 @@ x3dom.Runtime.prototype.mousePosition = function(event) {
  * Returns the 2d screen position [cx, cy] for a given point [wx, wy, wz] in world coordinates.
  */
 x3dom.Runtime.prototype.calcCanvasPos = function(wx, wy, wz) {
+
+    var DPR = window.devicePixelRatio || 1;
+
     var pnt = new x3dom.fields.SFVec3f(wx, wy, wz);
     
     var mat = this.canvas.doc._viewarea.getWCtoCCMatrix();
     var pos = mat.multFullMatrixPnt(pnt);
     
-    var w = this.canvas.doc._viewarea._width;
-    var h = this.canvas.doc._viewarea._height;
+    var w = this.canvas.doc._viewarea._width / DPR;
+    var h = this.canvas.doc._viewarea._height / DPR;
     
     var x = Math.round((pos.x + 1) * (w - 1) / 2);
     var y = Math.round((h - 1) * (1 - pos.y) / 2);
@@ -388,37 +392,58 @@ x3dom.Runtime.prototype.calcCanvasPos = function(wx, wy, wz) {
 };
 
 /**
+ * Function: getBBoxPoints
+ *
+ * Returns the eight point of the scene bounding box
+ */
+x3dom.Runtime.prototype.getBBoxPoints = function() {
+    var scene = this.canvas.doc._scene;
+    scene.updateVolume();
+
+    return [
+        {x: scene._lastMin.x, y: scene._lastMin.y, z: scene._lastMin.z},
+        {x: scene._lastMax.x, y: scene._lastMin.y, z: scene._lastMin.z},
+        {x: scene._lastMin.x, y: scene._lastMax.y, z: scene._lastMin.z},
+        {x: scene._lastMax.x, y: scene._lastMax.y, z: scene._lastMin.z},
+        {x: scene._lastMin.x, y: scene._lastMin.y, z: scene._lastMax.z},
+        {x: scene._lastMax.x, y: scene._lastMin.y, z: scene._lastMax.z},
+        {x: scene._lastMin.x, y: scene._lastMax.y, z: scene._lastMax.z},
+        {x: scene._lastMax.x, y: scene._lastMax.y, z: scene._lastMax.z},
+    ];
+
+};
+
+
+    /**
  * Function: calcPagePos
  *
- * Returns the 2d page (returns the mouse coordinates relative to the document) position [cx, cy] 
- * for a given point [wx, wy, wz] in world coordinates.
+ * Returns the 2d rect of the scene volume
  */
-x3dom.Runtime.prototype.calcPagePos = function(wx, wy, wz) {
-    var elem = this.canvas.canvas.offsetParent;
+x3dom.Runtime.prototype.getSceneBRect = function() {
+    var min = { x: Number.MAX_VALUE, y: Number.MAX_VALUE };
+    var max = { x: Number.MIN_VALUE, y: Number.MIN_VALUE };
 
-    if (!elem) {
-        x3dom.debug.logError("Can't calc page pos without offsetParent.");
-        return [0, 0];
+    var points = this.getBBoxPoints();
+
+    for ( var i = 0; i < points.length; i++ )
+    {
+        var pos2D = this.calcCanvasPos(points[i].x, points[i].y, points[i].z);
+
+        min.x = ( pos2D[0] <  min.x ) ? pos2D[0] : min.x;
+        min.y = ( pos2D[1] <  min.y ) ? pos2D[1] : min.y;
+
+        max.x = ( pos2D[0] >  max.x ) ? pos2D[0] : max.x;
+        max.y = ( pos2D[1] >  max.y ) ? pos2D[1] : max.y;
     }
-    
-	var canvasPos = elem.getBoundingClientRect();
-	var mousePos = this.calcCanvasPos(wx, wy, wz);
-	
-	var scrollLeft = window.pageXOffset || document.body.scrollLeft;
-	var scrollTop = window.pageYOffset || document.body.scrollTop;
 
-    var compStyle = document.defaultView.getComputedStyle(elem, null);
-	
-	var paddingLeft = parseFloat(compStyle.getPropertyValue('padding-left'));
-	var borderLeftWidth = parseFloat(compStyle.getPropertyValue('border-left-width'));
-		
-	var paddingTop = parseFloat(compStyle.getPropertyValue('padding-top'));
-	var borderTopWidth = parseFloat(compStyle.getPropertyValue('border-top-width'));
-		
-	var x = canvasPos.left + paddingLeft + borderLeftWidth + scrollLeft + mousePos[0];
-    var y = canvasPos.top + paddingTop + borderTopWidth + scrollTop + mousePos[1];
-    
-    return [x, y];
+    var rect = {
+        x: min.x,
+        y: min.y,
+        width: max.x - min.x,
+        height: max.y - min.y
+    };
+
+    return rect;
 };
 
 /**
@@ -621,10 +646,11 @@ x3dom.Runtime.prototype.fitObject = function(obj, updateCenterOfRotation)
  *
  * Parameter:
  *     axis - the axis as string: posX, negX, posY, negY, posZ, negZ
+ *     updateCenterOfRotation - sets the center of rotation to the center of the scene volume
  *
  */
-x3dom.Runtime.prototype.showAll = function(axis) {
-    this.canvas.doc._viewarea.showAll(axis);
+x3dom.Runtime.prototype.showAll = function(axis, updateCenterOfRotation) {
+    this.canvas.doc._viewarea.showAll(axis, updateCenterOfRotation);
 };
 
 /**
@@ -634,8 +660,9 @@ x3dom.Runtime.prototype.showAll = function(axis) {
  *
  * Parameter:
  *     obj  - the scene-graph element on which to focus
+ *     axis - the axis as string: posX, negX, posY, negY, posZ, negZ
  */
-x3dom.Runtime.prototype.showObject = function(obj)
+x3dom.Runtime.prototype.showObject = function(obj, axis)
 {
     if (obj && obj._x3domNode)
     {
@@ -656,7 +683,18 @@ x3dom.Runtime.prototype.showObject = function(obj)
         var focalLen = (viewarea._width < viewarea._height) ?
                         viewarea._width : viewarea._height;
 
-        var n0 = new x3dom.fields.SFVec3f(0, 0, 1);    // facingDir
+        var n0;    // facingDir
+
+        switch( axis )
+        {
+            case "posX": n0 = new x3dom.fields.SFVec3f( 1,  0,  0); break;
+            case "negX": n0 = new x3dom.fields.SFVec3f(-1,  0,  0); break;
+            case "posY": n0 = new x3dom.fields.SFVec3f( 0,  1,  0); break;
+            case "negY": n0 = new x3dom.fields.SFVec3f( 1, -1,  0); break;
+            case "posZ": n0 = new x3dom.fields.SFVec3f( 0,  0,  1); break;
+            case "negZ": n0 = new x3dom.fields.SFVec3f( 0,  0, -1); break;
+        }
+
         var viewpoint = this.canvas.doc._scene.getViewpoint();
         var fov = viewpoint.getFieldOfView() / 2.0;
         var ta = Math.tan(fov);
@@ -758,7 +796,7 @@ x3dom.Runtime.prototype.getCurrentTransform = function(domNode) {
  *    The min and max positions of the node's bounding box.
  */
 x3dom.Runtime.prototype.getBBox = function(domNode) {
-    if (domNode && domNode._x3domNode && this.isA(domNode, "X3DBoundedNode"))
+    if (domNode && domNode._x3domNode && this.isA(domNode, "X3DBoundedObject"))
     {
         var vol = domNode._x3domNode.getVolume();
 
@@ -939,6 +977,78 @@ x3dom.Runtime.prototype.helicopter = function() {
     viewarea._needNavigationMatrixUpdate = true;
     this.canvas.doc.needRender = true;
  };
+ 
+ /**
+ * APIFunction: disableKeys
+ *
+ * Disable keys
+ */
+x3dom.Runtime.prototype.disableKeys = function() {
+    this.canvas.disableKeys = true;
+};
+
+ /**
+ * APIFunction: enableKeys
+ *
+ * Enable keys
+ */
+x3dom.Runtime.prototype.enableKeys = function() {
+    this.canvas.disableKeys = false;
+};
+
+ /**
+ * APIFunction: disableLeftDrag
+ *
+ * Disable left drag
+ */
+x3dom.Runtime.prototype.disableLeftDrag = function() {
+    this.canvas.disableLeftDrag = true;
+};
+
+ /**
+ * APIFunction: enableLeftDrag
+ *
+ * Enable left drag
+ */
+x3dom.Runtime.prototype.enableLeftDrag = function() {
+    this.canvas.disableLeftDrag = false;
+};
+
+ /**
+ * APIFunction: disableRightDrag
+ *
+ * Disable right drag
+ */
+x3dom.Runtime.prototype.disableRightDrag = function() {
+    this.canvas.disableRightDrag = true;
+};
+
+ /**
+ * APIFunction: enableRightDrag
+ *
+ * Enable right drag
+ */
+x3dom.Runtime.prototype.enableRightDrag = function() {
+    this.canvas.disableRightDrag = false;
+};
+
+ /**
+ * APIFunction: disableMiddleDrag
+ *
+ * Disable middle drag
+ */
+x3dom.Runtime.prototype.disableMiddleDrag = function() {
+    this.canvas.disableMiddleDrag = true;
+};
+
+ /**
+ * APIFunction: enableMiddleDrag
+ *
+ * Enable right drag
+ */
+x3dom.Runtime.prototype.enableMiddleDrag = function() {
+    this.canvas.disableMiddleDrag = false;
+};
 
 /**
  * Function: togglePoints
@@ -1040,6 +1150,20 @@ x3dom.Runtime.prototype.speed = function(newSpeed) {
         x3dom.debug.logInfo("Changed navigation speed to " + navi._vf.speed);
     }
     return navi._vf.speed;
+};
+
+/**
+ * APIFunction: zoom
+ *
+ *	Modifies the zoom of current viewpoint with the specified zoom value.
+ *
+ * Parameters:
+ *		zoomAmount - The zoom amount
+ *
+ */
+x3dom.Runtime.prototype.zoom = function(zoomAmount) {
+    this.canvas.doc._viewarea.zoom( zoomAmount );
+    this.canvas.doc.needRender = true;
 };
 
 /**
@@ -1146,4 +1270,91 @@ x3dom.Runtime.prototype.isA = function(domNode, nodeType) {
     }
     
     return inherits;
+};
+
+/**
+ * APIMethod getPixelScale
+ *
+ * Returns the virtual scale of one pixel for the current orthographic viewpoint.
+ * The returned vector contains scale values for the x and y direction. The z value is always null.
+ *
+ * Parameters:
+ *
+ *  Returns:
+ *    x3dom.fields.SFVec3f or null if non orthographic view
+ */
+x3dom.Runtime.prototype.getPixelScale = function(){
+    var vp = this.viewpoint();
+    if(!x3dom.isa(vp, x3dom.nodeTypes.OrthoViewpoint)){
+        x3dom.debug.logError("getPixelScale is only implemented for orthographic Viewpoints");
+        return null;
+    }
+
+    var zoomLevel = vp.getZoom();
+    
+    var left   = zoomLevel[0];
+    var bottom = zoomLevel[1];
+    var right  = zoomLevel[2];
+    var top    = zoomLevel[3];
+
+    var x = right - left;
+    var y = top - bottom;
+
+    var pixelScaleX = x / this.getWidth();
+    var pixelScaleY = y / this.getHeight();
+
+    return new x3dom.fields.SFVec3f(pixelScaleX,pixelScaleY,0.0);
+};
+
+x3dom.Runtime.prototype.onAnimationStarted = function() {
+    //x3dom.debug.logInfo('Render frame finished');
+    // to be overwritten by user
+};
+
+x3dom.Runtime.prototype.onAnimationFinished = function() {
+    //x3dom.debug.logInfo('Render frame finished');
+    // to be overwritten by user
+};
+
+x3dom.Runtime.prototype.toggleProjection = function( perspViewID, orthoViewID )
+{
+    var dist;
+    var factor = 2.2;
+    var runtime = document.getElementById("x3d").runtime;
+    var navInfo = runtime.canvas.doc._scene.getNavigationInfo();
+    var speed = navInfo._vf.transitionTime;
+    var persp = document.getElementById(perspViewID)._x3domNode;
+    var ortho = document.getElementById(orthoViewID)._x3domNode;
+
+    navInfo._vf.transitionTime = 0;
+
+    ortho._bindAnimation = false;
+    persp._bindAnimation = false;
+
+    if (persp._vf.isActive) {
+        ortho._viewMatrix = persp._viewMatrix;
+
+        document.getElementById(orthoViewID).setAttribute("set_bind", "true");
+
+        dist = persp._viewMatrix.e3().length() / factor;
+
+        ortho.setZoom(dist);
+    }
+    else if (ortho._vf.isActive) {
+        persp._viewMatrix = ortho._viewMatrix;
+
+        document.getElementById(perspViewID).setAttribute("set_bind", "true");
+
+        dist = ortho._fieldOfView[2] * factor;
+        var translation = ortho._viewMatrix.e3().normalize().multiply(dist);
+
+        persp._viewMatrix.setTranslate(translation);
+    }
+
+    navInfo._vf.transitionTime = speed;
+
+    ortho._bindAnimation = true;
+    persp._bindAnimation = true;
+
+    return (persp._vf.isActive) ? 0 : 1;
 };

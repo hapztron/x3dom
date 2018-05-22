@@ -19,11 +19,11 @@ x3dom.BinaryContainerLoader = {
         if (glErr) {
             if (glErr == gl.OUT_OF_MEMORY) {
                 this.outOfMemory = true;
-                x3dom.debug.logError("GL-Error " + glErr + " on loading binary geometry (out of memory).");
+                x3dom.debug.logError("GL-Error " + glErr + " on loading binary container (out of memory).");
                 console.error("WebGL: OUT_OF_MEMORY");
             }
             else {
-                x3dom.debug.logError("GL-Error " + glErr + " on loading binary geometry.");
+                x3dom.debug.logError("GL-Error " + glErr + " on loading binary container.");
             }
         }
     }
@@ -340,20 +340,31 @@ x3dom.BinaryContainerLoader.setupBinGeo = function(shape, sp, gl, viewarea, curr
     // index
     if (binGeo._vf.index.length > 0)
     {
+        shape._webgl.binaryGeometry = 1;    // indexed BG
+
         var xmlhttp0 = new XMLHttpRequest();
-        xmlhttp0.open("GET", encodeURI(shape._nameSpace.getURL(binGeo._vf.index)), true);
+        xmlhttp0.open("GET", shape._nameSpace.getURL(binGeo._vf.index), true);
         xmlhttp0.responseType = "arraybuffer";
 
         shape._nameSpace.doc.downloadCount += 1;
 
-        xmlhttp0.send(null);
+        //xmlhttp0.send(null);
+        x3dom.RequestManager.addRequest( xmlhttp0 );
 
         xmlhttp0.onload = function()
         {
+            shape._nameSpace.doc.downloadCount -= 1;
+            shape._webgl.internalDownloadCount -= 1;
+
+            if (xmlhttp0.status != 200) {
+                x3dom.debug.logError( "XHR1/ index load failed with status: " + xmlhttp0.status );
+                return;
+            }
+
             if (!shape._webgl)
                 return;
 
-            var XHR_buffer = xmlhttp0.response;
+            var XHR_buffer = binGeo._vf.compressed == true ? x3dom.Utils.gunzip(xmlhttp0.response) : xmlhttp0.response;
 
             var geoNode = binGeo;
             var attribTypeStr = geoNode._vf.indexType;  //"Uint16"
@@ -366,7 +377,7 @@ x3dom.BinaryContainerLoader.setupBinGeo = function(shape, sp, gl, viewarea, curr
             }
 
             var indicesBuffer = gl.createBuffer();
-            shape._webgl.buffers[0] = indicesBuffer;
+
 
             if (x3dom.caps.INDEX_UINT && attribTypeStr == "Uint32") {
                 //indexArray is Uint32Array
@@ -379,11 +390,10 @@ x3dom.BinaryContainerLoader.setupBinGeo = function(shape, sp, gl, viewarea, curr
 
             gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indicesBuffer);
             gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexArray, gl.STATIC_DRAW);
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
 
             // Test reading Data
             //x3dom.debug.logWarning("arraybuffer[0]="+indexArray[0]+"; n="+indexArray.length);
-
-            shape._webgl.binaryGeometry = 1;    // indexed BG
 
             if (geoNode._vf.vertexCount[0] == 0)
                 geoNode._vf.vertexCount[0] = indexArray.length;
@@ -399,15 +409,17 @@ x3dom.BinaryContainerLoader.setupBinGeo = function(shape, sp, gl, viewarea, curr
 
             indexArray = null;
 
-            shape._nameSpace.doc.downloadCount -= 1;
-            shape._webgl.internalDownloadCount -= 1;
             if (shape._webgl.internalDownloadCount == 0)
+            {
                 shape._nameSpace.doc.needRender = true;
+            }
 
             that.checkError(gl);
 
             var t11 = new Date().getTime() - t00;
             x3dom.debug.logInfo("XHR0/ index load time: " + t11 + " ms");
+
+            shape._webgl.buffers[0] = indicesBuffer;
         };
     }
 
@@ -415,19 +427,28 @@ x3dom.BinaryContainerLoader.setupBinGeo = function(shape, sp, gl, viewarea, curr
     if (binGeo._hasStrideOffset && binGeo._vf.coord.length > 0)
     {
         var xmlhttp = new XMLHttpRequest();
-        xmlhttp.open("GET", encodeURI(shape._nameSpace.getURL(binGeo._vf.coord)), true);
+        xmlhttp.open("GET", shape._nameSpace.getURL(binGeo._vf.coord), true);
         xmlhttp.responseType = "arraybuffer";
 
         shape._nameSpace.doc.downloadCount += 1;
 
-        xmlhttp.send(null);
+        //xmlhttp.send(null);
+        x3dom.RequestManager.addRequest( xmlhttp );
 
         xmlhttp.onload = function()
         {
+            shape._nameSpace.doc.downloadCount -= 1;
+            shape._webgl.internalDownloadCount -= 1;
+
+            if (xmlhttp.status != 200) {
+                x3dom.debug.logError( "XHR1/ interleaved array load failed with status: " + xmlhttp.status );
+                return;
+            }
+
             if (!shape._webgl)
                 return;
 
-            var XHR_buffer = xmlhttp.response;
+            var XHR_buffer = binGeo._vf.compressed == true ? x3dom.Utils.gunzip(xmlhttp.response) : xmlhttp.response;
 
             var geoNode = binGeo;
             var attribTypeStr = geoNode._vf.coordType;
@@ -455,8 +476,6 @@ x3dom.BinaryContainerLoader.setupBinGeo = function(shape, sp, gl, viewarea, curr
             }
 
             var buffer = gl.createBuffer();
-
-            shape._webgl.buffers[1] = buffer;
 
             gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
             gl.bufferData(gl.ARRAY_BUFFER, attributes, gl.STATIC_DRAW);
@@ -507,15 +526,18 @@ x3dom.BinaryContainerLoader.setupBinGeo = function(shape, sp, gl, viewarea, curr
 
             attributes = null;  // delete data block in CPU memory
 
-            shape._nameSpace.doc.downloadCount -= 1;
-            shape._webgl.internalDownloadCount -= 1;
             if (shape._webgl.internalDownloadCount == 0)
+            {
                 shape._nameSpace.doc.needRender = true;
+            }
 
             that.checkError(gl);
 
             var t11 = new Date().getTime() - t00;
             x3dom.debug.logInfo("XHR/ interleaved array load time: " + t11 + " ms");
+
+            shape._webgl.buffers[1] = buffer;
+
         };
     }
 
@@ -523,19 +545,28 @@ x3dom.BinaryContainerLoader.setupBinGeo = function(shape, sp, gl, viewarea, curr
     if (!binGeo._hasStrideOffset && binGeo._vf.coord.length > 0)
     {
         var xmlhttp1 = new XMLHttpRequest();
-        xmlhttp1.open("GET", encodeURI(shape._nameSpace.getURL(binGeo._vf.coord)), true);
+        xmlhttp1.open("GET", shape._nameSpace.getURL(binGeo._vf.coord), true);
         xmlhttp1.responseType = "arraybuffer";
 
         shape._nameSpace.doc.downloadCount += 1;
 
-        xmlhttp1.send(null);
+        //xmlhttp1.send(null);
+        x3dom.RequestManager.addRequest( xmlhttp1 );
 
         xmlhttp1.onload = function()
         {
+            shape._nameSpace.doc.downloadCount -= 1;
+            shape._webgl.internalDownloadCount -= 1;
+
+            if (xmlhttp1.status != 200) {
+                x3dom.debug.logError( "XHR1/ coord load failed with status: " + xmlhttp1.status );
+                return;
+            }
+
             if (!shape._webgl)
                 return;
 
-            var XHR_buffer = xmlhttp1.response;
+            var XHR_buffer = binGeo._vf.compressed == true ? x3dom.Utils.gunzip(xmlhttp1.response) : xmlhttp1.response;
 
             var geoNode = binGeo;
             var i = 0;
@@ -553,17 +584,9 @@ x3dom.BinaryContainerLoader.setupBinGeo = function(shape, sp, gl, viewarea, curr
             gl.bindAttribLocation(sp.program, 0, "position");
 
             var positionBuffer = gl.createBuffer();
-            shape._webgl.buffers[1] = positionBuffer;
             gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-
             gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
-            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-
-            gl.vertexAttribPointer(sp.position,
-                geoNode._mesh._numPosComponents,
-                shape._webgl.coordType, false,
-                shape._coordStrideOffset[0], shape._coordStrideOffset[1]);
-            gl.enableVertexAttribArray(sp.position);
+            gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
             geoNode._mesh._numCoords = vertices.length / geoNode._mesh._numPosComponents;
 
@@ -603,15 +626,17 @@ x3dom.BinaryContainerLoader.setupBinGeo = function(shape, sp, gl, viewarea, curr
 
             vertices = null;
 
-            shape._nameSpace.doc.downloadCount -= 1;
-            shape._webgl.internalDownloadCount -= 1;
             if (shape._webgl.internalDownloadCount == 0)
+            {
                 shape._nameSpace.doc.needRender = true;
+            }
 
             that.checkError(gl);
 
             var t11 = new Date().getTime() - t00;
             x3dom.debug.logInfo("XHR1/ coord load time: " + t11 + " ms");
+
+            shape._webgl.buffers[1] = positionBuffer;
         };
     }
 
@@ -619,19 +644,28 @@ x3dom.BinaryContainerLoader.setupBinGeo = function(shape, sp, gl, viewarea, curr
     if (!binGeo._hasStrideOffset && binGeo._vf.normal.length > 0)
     {
         var xmlhttp2 = new XMLHttpRequest();
-        xmlhttp2.open("GET", encodeURI(shape._nameSpace.getURL(binGeo._vf.normal)), true);
+        xmlhttp2.open("GET", shape._nameSpace.getURL(binGeo._vf.normal), true);
         xmlhttp2.responseType = "arraybuffer";
 
         shape._nameSpace.doc.downloadCount += 1;
 
-        xmlhttp2.send(null);
+        //xmlhttp2.send(null);
+        x3dom.RequestManager.addRequest( xmlhttp2 );
 
         xmlhttp2.onload = function()
         {
+            shape._nameSpace.doc.downloadCount -= 1;
+            shape._webgl.internalDownloadCount -= 1;
+
+            if (xmlhttp2.status != 200) {
+                x3dom.debug.logError( "XHR2/ normal load failed with status: " + xmlhttp2.status );
+                return;
+            }
+
             if (!shape._webgl)
                 return;
 
-            var XHR_buffer = xmlhttp2.response;
+            var XHR_buffer = binGeo._vf.compressed == true ? x3dom.Utils.gunzip(xmlhttp2.response) : xmlhttp2.response;
 
             var attribTypeStr = binGeo._vf.normalType;
             shape._webgl.normalType = x3dom.Utils.getVertexAttribType(attribTypeStr, gl);
@@ -644,31 +678,27 @@ x3dom.BinaryContainerLoader.setupBinGeo = function(shape, sp, gl, viewarea, curr
             }
 
             var normalBuffer = gl.createBuffer();
-            shape._webgl.buffers[2] = normalBuffer;
 
             gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
             gl.bufferData(gl.ARRAY_BUFFER, normals, gl.STATIC_DRAW);
-
-            gl.vertexAttribPointer(sp.normal,
-                binGeo._mesh._numNormComponents,
-                shape._webgl.normalType, false,
-                shape._normalStrideOffset[0], shape._normalStrideOffset[1]);
-            gl.enableVertexAttribArray(sp.normal);
+            gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
             // Test reading Data
             //x3dom.debug.logWarning("arraybuffer[0].nx="+normals[0]);
 
             normals = null;
 
-            shape._nameSpace.doc.downloadCount -= 1;
-            shape._webgl.internalDownloadCount -= 1;
             if (shape._webgl.internalDownloadCount == 0)
+            {
                 shape._nameSpace.doc.needRender = true;
+            }
 
             that.checkError(gl);
 
             var t11 = new Date().getTime() - t00;
             x3dom.debug.logInfo("XHR2/ normal load time: " + t11 + " ms");
+
+            shape._webgl.buffers[2] = normalBuffer;
         };
     }
 
@@ -676,19 +706,31 @@ x3dom.BinaryContainerLoader.setupBinGeo = function(shape, sp, gl, viewarea, curr
     if (!binGeo._hasStrideOffset && binGeo._vf.texCoord.length > 0)
     {
         var xmlhttp3 = new XMLHttpRequest();
-        xmlhttp3.open("GET", encodeURI(shape._nameSpace.getURL(binGeo._vf.texCoord)), true);
+        xmlhttp3.open("GET", shape._nameSpace.getURL(binGeo._vf.texCoord), true);
         xmlhttp3.responseType = "arraybuffer";
 
         shape._nameSpace.doc.downloadCount += 1;
 
-        xmlhttp3.send(null);
+        //xmlhttp3.send(null);
+        x3dom.RequestManager.addRequest( xmlhttp3 );
 
         xmlhttp3.onload = function()
         {
+            var i, j;
+            var tmp;
+
+            shape._nameSpace.doc.downloadCount -= 1;
+            shape._webgl.internalDownloadCount -= 1;
+
+            if (xmlhttp3.status != 200) {
+                x3dom.debug.logError( "XHR3/ texcoord load failed with status: " + xmlhttp3.status );
+                return;
+            }
+
             if (!shape._webgl)
                 return;
 
-            var XHR_buffer = xmlhttp3.response;
+            var XHR_buffer = binGeo._vf.compressed == true ? x3dom.Utils.gunzip(xmlhttp3.response) : xmlhttp3.response;
 
             var attribTypeStr = binGeo._vf.texCoordType;
             shape._webgl.texCoordType = x3dom.Utils.getVertexAttribType(attribTypeStr, gl);
@@ -700,27 +742,47 @@ x3dom.BinaryContainerLoader.setupBinGeo = function(shape, sp, gl, viewarea, curr
                 return;
             }
 
-            var texcBuffer = gl.createBuffer();
-            shape._webgl.buffers[3] = texcBuffer;
 
-            gl.bindBuffer(gl.ARRAY_BUFFER, texcBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, texCoords, gl.STATIC_DRAW);
+            //if IDs are given in texture coordinates, interpret texcoords as ID buffer
+            if (binGeo._vf["idsPerVertex"])
+            {
+                var idBuffer = gl.createBuffer();
 
-            gl.vertexAttribPointer(sp.texcoord,
-                binGeo._mesh._numTexComponents,
-                shape._webgl.texCoordType, false,
-                shape._texCoordStrideOffset[0], shape._texCoordStrideOffset[1]);
-            gl.enableVertexAttribArray(sp.texcoord);
+                gl.bindBuffer(gl.ARRAY_BUFFER, idBuffer);
 
+                //Create a buffer for the ids with half size of the texccoord buffer
+                var ids = x3dom.Utils.getArrayBufferView("Float32", texCoords.length/2);
+
+                //swap x and y, in order to interpret tex coords as FLOAT later on
+                for (i = 0, j= 0; i < texCoords.length; i+=2, j++)
+                {
+                    ids[j] = texCoords[i+1] * 65536 + texCoords[i];
+                }
+
+                gl.bufferData(gl.ARRAY_BUFFER, ids, gl.STATIC_DRAW);
+                gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+                shape._webgl.buffers[5] = idBuffer;
+            }
+            else
+            {
+                var texcBuffer = gl.createBuffer();
+
+                gl.bindBuffer(gl.ARRAY_BUFFER, texcBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, texCoords, gl.STATIC_DRAW);
+                gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+                shape._webgl.buffers[3] = texcBuffer;
+            }
             // Test reading Data
             //x3dom.debug.logWarning("arraybuffer[0].tx="+texCoords[0]);
 
             texCoords = null;
 
-            shape._nameSpace.doc.downloadCount -= 1;
-            shape._webgl.internalDownloadCount -= 1;
             if (shape._webgl.internalDownloadCount == 0)
+            {
                 shape._nameSpace.doc.needRender = true;
+            }
 
             that.checkError(gl);
 
@@ -733,19 +795,28 @@ x3dom.BinaryContainerLoader.setupBinGeo = function(shape, sp, gl, viewarea, curr
     if (!binGeo._hasStrideOffset && binGeo._vf.color.length > 0)
     {
         var xmlhttp4 = new XMLHttpRequest();
-        xmlhttp4.open("GET", encodeURI(shape._nameSpace.getURL(binGeo._vf.color)), true);
+        xmlhttp4.open("GET", shape._nameSpace.getURL(binGeo._vf.color), true);
         xmlhttp4.responseType = "arraybuffer";
 
         shape._nameSpace.doc.downloadCount += 1;
 
-        xmlhttp4.send(null);
+        //xmlhttp4.send(null);
+        x3dom.RequestManager.addRequest( xmlhttp4 );
 
         xmlhttp4.onload = function()
         {
+            shape._nameSpace.doc.downloadCount -= 1;
+            shape._webgl.internalDownloadCount -= 1;
+
+            if (xmlhttp4.status != 200) {
+                x3dom.debug.logError( "XHR4/ color load failed with status: " + xmlhttp4.status );
+                return;
+            }
+
             if (!shape._webgl)
                 return;
 
-            var XHR_buffer = xmlhttp4.response;
+            var XHR_buffer = binGeo._vf.compressed == true ? x3dom.Utils.gunzip(xmlhttp4.response) : xmlhttp4.response;
 
             var attribTypeStr = binGeo._vf.colorType;
             shape._webgl.colorType = x3dom.Utils.getVertexAttribType(attribTypeStr, gl);
@@ -758,36 +829,31 @@ x3dom.BinaryContainerLoader.setupBinGeo = function(shape, sp, gl, viewarea, curr
             }
 
             var colorBuffer = gl.createBuffer();
-            shape._webgl.buffers[4] = colorBuffer;
 
             gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
             gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STATIC_DRAW);
-
-            gl.vertexAttribPointer(sp.color,
-                binGeo._mesh._numColComponents,
-                shape._webgl.colorType, false,
-                shape._colorStrideOffset[0], shape._colorStrideOffset[1]);
-            gl.enableVertexAttribArray(sp.color);
+            gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
             // Test reading Data
             //x3dom.debug.logWarning("arraybuffer[0].cx="+colors[0]);
 
             colors = null;
 
-            shape._nameSpace.doc.downloadCount -= 1;
-            shape._webgl.internalDownloadCount -= 1;
             if (shape._webgl.internalDownloadCount == 0)
+            {
                 shape._nameSpace.doc.needRender = true;
+            }
 
             that.checkError(gl);
 
             var t11 = new Date().getTime() - t00;
             x3dom.debug.logInfo("XHR4/ color load time: " + t11 + " ms");
+
+            shape._webgl.buffers[4] = colorBuffer;
         };
     }
     // TODO: tangent AND binormal
 };
-
 
 /** setup/download pop geometry */
 x3dom.BinaryContainerLoader.setupPopGeo = function(shape, sp, gl, viewarea, currContext)
@@ -1010,575 +1076,6 @@ x3dom.BinaryContainerLoader.setupPopGeo = function(shape, sp, gl, viewarea, curr
 
     x3dom.DownloadManager.get(dataURLs, downloadCallbacks, priorities);
     //END CODE WITH DL MANAGER
-};
-
-/** setup/download bit-lod geometry */
-x3dom.BinaryContainerLoader.setupBitLODGeo = function(shape, sp, gl, viewarea, currContext)
-{
-    if (this.outOfMemory) {
-        return;
-    }
-
-    shape._webgl.bitLODGeometry = -1;
-
-    var bitLODGeometry = shape._cf.geometry.node;
-
-    if (!bitLODGeometry._vf.normalPerVertex)
-    {
-        shape._webgl.bitLODtotalVertexCount = 0;    // otherwise undefined
-
-        for (i = 0; i < bitLODGeometry._vf.vertexCount.length; i++) {
-            if (shape._webgl.primType[i] == gl.TRIANGLES) {
-                shape._webgl.bitLODtotalVertexCount += bitLODGeometry._vf.vertexCount[i];
-            }
-            else if (shape._webgl.primType[i] == gl.TRIANGLE_STRIP) {
-                shape._webgl.bitLODtotalVertexCount += (bitLODGeometry._vf.vertexCount[i] - 2) * 3;
-            }
-        }
-    }
-
-    //Get number of components
-    var numComponents = bitLODGeometry.getNumComponents();
-
-    //Check if components available
-    if(numComponents)
-    {
-        //Check if there are indices available
-        if(bitLODGeometry.hasIndex())
-        {
-            //this function generates a single, large triangle buffer out of
-            //  - an index buffer containing indices of TRIANGLES / TRIANGLE STRIPS
-            //  - a set of data buffers containing the triangle data
-            shape._webgl.generateTriangleBuffer = function() {
-                if ( typeof shape._webgl.dataBuffers[0] != 'undefined' &&
-                    (typeof shape._webgl.dataBuffers[1] != 'undefined' || //positions & normals
-                     typeof shape._webgl.dataBuffers[3] != 'undefined' || //texcoords
-                     typeof shape._webgl.dataBuffers[4] != 'undefined'    //colors
-                    ))
-                {
-                    var indexArray = shape._webgl.dataBuffers[0];
-
-                    var read_idx_pos_nor;
-                    var read_idx_tc;
-                    var read_idx_col;
-                    var write_idx;
-                    var i;
-
-                    var n_theta   = 0;
-                    var n_phi     = 0;
-                    var accum_cnt = 0;
-                    var points    = [new x3dom.fields.SFVec3f(0, 0, 0),
-                        new x3dom.fields.SFVec3f(0, 0, 0),
-                        new x3dom.fields.SFVec3f(0, 0, 0)];
-                    var nor = new x3dom.fields.SFVec3f(0, 0, 0);
-                    var v1  = new x3dom.fields.SFVec3f(0, 0, 0);
-                    var v2  = new x3dom.fields.SFVec3f(0, 0, 0);
-
-                    var coordsNormalsAvailable = (typeof shape._webgl.dataBuffers[1] != 'undefined' &&
-                                                         shape._webgl.dataBuffers[1].length > 0);
-                    var texCoordsAvailable     = (typeof shape._webgl.dataBuffers[3] != 'undefined' &&
-                                                         shape._webgl.dataBuffers[3].length > 0);
-                    var colorsAvailable        = (typeof shape._webgl.dataBuffers[4] != 'undefined' &&
-                                                         shape._webgl.dataBuffers[4].length > 0);
-
-                    var posNorEntriesPerElement = (shape._cf.geometry.node._mesh._numNormComponents == 2 ? 6 : 8);
-                    var stride = posNorEntriesPerElement + (bitLODGeometry.hasTexCoord() ? 2 : 0) +
-                                                           (bitLODGeometry.hasColor() ? 4 : 0);
-
-                    if (typeof shape._webgl.triangleBuffer == 'undefined') {
-                        //6 to 12 entries per element:
-                        //px py pz + 0 + nt np [+ s t] [+ r g b + 0]
-                        //px py pz + 0 + nx ny nz + 0 + [+ s t] [+ r g b + 0]
-                        shape._webgl.triangleBuffer = new Uint16Array(indexArray.length * stride);
-                    }
-
-                    for (i = 0; i < indexArray.length; ++i) {
-                        write_idx = i * stride;
-
-                        if (coordsNormalsAvailable) {
-                            read_idx_pos_nor = indexArray[i] * 6;
-
-                            //write coords
-                            shape._webgl.triangleBuffer[write_idx    ] = shape._webgl.dataBuffers[1][read_idx_pos_nor    ];
-                            shape._webgl.triangleBuffer[write_idx + 1] = shape._webgl.dataBuffers[1][read_idx_pos_nor + 1];
-                            shape._webgl.triangleBuffer[write_idx + 2] = shape._webgl.dataBuffers[1][read_idx_pos_nor + 2];
-                            shape._webgl.triangleBuffer[write_idx + 3] = 0;
-
-                            //write normals
-                            //A: use transmitted per-vertex-normals
-                            if (bitLODGeometry._vf.normalPerVertex) {
-                                shape._webgl.triangleBuffer[write_idx + 4] = shape._webgl.dataBuffers[1][read_idx_pos_nor + 4];
-                                shape._webgl.triangleBuffer[write_idx + 5] = shape._webgl.dataBuffers[1][read_idx_pos_nor + 5];
-                            }
-                            else if (shape._webgl.loadedLevels === 8) {
-                                //B: on-the-fly normal computation for per-face normals (by cross product)
-                                points[accum_cnt].x = shape._webgl.dataBuffers[1][read_idx_pos_nor    ];
-                                points[accum_cnt].y = shape._webgl.dataBuffers[1][read_idx_pos_nor + 1];
-                                points[accum_cnt].z = shape._webgl.dataBuffers[1][read_idx_pos_nor + 2];
-
-                                if (++accum_cnt === 3) {
-                                    v1 = points[1].subtract(points[0]);
-                                    v2 = points[2].subtract(points[0]);
-
-                                    nor = v1.cross(v2);
-                                    nor = nor.normalize();
-
-                                    //map to positive integers
-                                    nor = nor.add(new x3dom.fields.SFVec3f(1.0, 1.0, 1.0));
-                                    nor = nor.multiply(0.5);
-                                    nor = nor.multiply(shape._cf.geometry.node.getPrecisionMax('normalType'));
-
-                                    shape._webgl.triangleBuffer[write_idx + 4 - stride*2] = nor.x.toFixed(0);
-                                    shape._webgl.triangleBuffer[write_idx + 5 - stride*2] = nor.y.toFixed(0);
-                                    shape._webgl.triangleBuffer[write_idx + 6 - stride*2] = nor.z.toFixed(0);
-
-                                    shape._webgl.triangleBuffer[write_idx + 4 - stride  ] = nor.x.toFixed(0);
-                                    shape._webgl.triangleBuffer[write_idx + 5 - stride  ] = nor.y.toFixed(0);
-                                    shape._webgl.triangleBuffer[write_idx + 6 - stride  ] = nor.z.toFixed(0);
-
-                                    shape._webgl.triangleBuffer[write_idx + 4           ] = nor.x.toFixed(0);
-                                    shape._webgl.triangleBuffer[write_idx + 5           ] = nor.y.toFixed(0);
-                                    shape._webgl.triangleBuffer[write_idx + 6           ] = nor.z.toFixed(0);
-
-                                    accum_cnt = 0;
-                                }
-                            }
-                        }
-
-                        write_idx += posNorEntriesPerElement;
-
-                        if (texCoordsAvailable) {
-                            read_idx_tc = indexArray[i] * 2;
-
-                            //write texcoords
-                            shape._webgl.triangleBuffer[write_idx    ] = shape._webgl.dataBuffers[3][read_idx_tc    ];
-                            shape._webgl.triangleBuffer[write_idx + 1] = shape._webgl.dataBuffers[3][read_idx_tc + 1];
-
-                            write_idx += 2;
-                        }
-
-                        if (colorsAvailable) {
-                            read_idx_col = indexArray[i] * 4;
-
-                            //write colors
-                            shape._webgl.triangleBuffer[write_idx    ] = shape._webgl.dataBuffers[4][read_idx_col    ];
-                            shape._webgl.triangleBuffer[write_idx + 1] = shape._webgl.dataBuffers[4][read_idx_col + 1];
-                            shape._webgl.triangleBuffer[write_idx + 2] = shape._webgl.dataBuffers[4][read_idx_col + 2];
-                            shape._webgl.triangleBuffer[write_idx + 3] = 0;
-
-                            write_idx += 4;
-                        }
-                    }
-
-                    //upload triangle buffer to the gpu and configure attributes
-                    var glBuf = gl.createBuffer();
-                    gl.bindBuffer(gl.ARRAY_BUFFER, glBuf);
-                    gl.bufferData(gl.ARRAY_BUFFER, shape._webgl.triangleBuffer, gl.STATIC_DRAW);
-
-                    var attribTypeStr 		= bitLODGeometry._vf.coordType;
-                    shape._webgl.coordType  = x3dom.Utils.getVertexAttribType(attribTypeStr, gl);
-                    shape._webgl.normalType = shape._webgl.coordType;
-
-                    shape._coordStrideOffset[0]  = shape._normalStrideOffset[0] = stride*2;
-                    shape._coordStrideOffset[1]  = 0;
-                    shape._normalStrideOffset[1] = 8; //4*2
-
-                    shape._webgl.buffers[1] = glBuf;
-                    shape._webgl.buffers[2] = glBuf;
-                                      
-                    gl.vertexAttribPointer(sp.position, shape._cf.geometry.node._mesh._numPosComponents,
-                        shape._webgl.coordType, false, shape._coordStrideOffset[0],
-                        shape._coordStrideOffset[1]);
-                    gl.enableVertexAttribArray(sp.position);
-
-                    gl.vertexAttribPointer(sp.normal, shape._cf.geometry.node._mesh._numNormComponents,
-                        shape._webgl.normalType, false, shape._coordStrideOffset[0],
-                        shape._coordStrideOffset[1]);
-                    gl.enableVertexAttribArray(sp.normal);
-
-                    if (bitLODGeometry.hasTexCoord()) {
-                        shape._webgl.texCoordType = shape._webgl.coordType;
-                        shape._webgl.buffers[3] = glBuf;
-
-                        shape._texCoordStrideOffset[0] = stride*2;
-                        shape._texCoordStrideOffset[1] = posNorEntriesPerElement*2;
-
-                        gl.vertexAttribPointer(sp.texcoord, shape._cf.geometry.node._mesh._numTexComponents,
-                            shape._webgl.texCoordType, false, shape._texCoordStrideOffset[0],
-                            shape._texCoordStrideOffset[1]);
-                        gl.enableVertexAttribArray(sp.texcoord);
-                    }
-
-                    if (bitLODGeometry.hasColor()) {
-                        shape._webgl.colorType  = shape._webgl.coordType;
-                        shape._webgl.buffers[4] = glBuf;
-
-                        shape._colorStrideOffset[0] = stride*2;
-                        shape._colorStrideOffset[1] = bitLODGeometry.hasTexCoord() ? (posNorEntriesPerElement + 2) * 2 :
-                                                                                      posNorEntriesPerElement * 2;
-
-                        gl.vertexAttribPointer(sp.color, shape._cf.geometry.node._mesh._numColComponents,
-                            shape._webgl.colorType, false, shape._colorStrideOffset[0],
-                            shape._colorStrideOffset[1]);
-                        gl.enableVertexAttribArray(sp.color);
-                    }
-                }
-            };
-
-            shape._webgl.bitLODGeometry = 1;    // indexed BLG
-            var xmlhttpLOD = new XMLHttpRequest();
-            xmlhttpLOD.open("GET", encodeURI(shape._nameSpace.getURL(bitLODGeometry._vf.index)), true);
-            xmlhttpLOD.responseType = "arraybuffer";
-
-            shape._nameSpace.doc.downloadCount += 1;
-
-            xmlhttpLOD.send(null);
-
-            xmlhttpLOD.onload = function()
-            {
-                var XHR_buffer = xmlhttpLOD.response;
-
-                var indexArray;
-
-                if (bitLODGeometry.usesClientSideNormals() && bitLODGeometry.usesVLCIndices()) {
-                    
-                    //variable-length decoding, indexed triangle strips are converted to indexed triangles
-                    (function(){
-                        if (typeof shape._webgl.dataBuffers == 'undefined')
-                            shape._webgl.dataBuffers = [];
-
-                        shape._webgl.dataBuffers[0] = [];
-
-                        var codes = x3dom.Utils.getArrayBufferView("Uint8", XHR_buffer);
-                        var i = 0;
-                        var b;
-                        var delta;
-                        var magic_number;
-                        var value = 0;
-
-                        var vertexIdx = 0;
-                        var primIdx   = 0;
-                        var lastVal   = -1, preLastVal = -1;
-
-                        while (i < codes.length) {
-                            if (vertexIdx >= shape._cf.geometry.node._vf.vertexCount[primIdx]) {
-                                ++primIdx;
-                                vertexIdx = 0;
-                            }
-
-                            b = codes[i++];
-
-                            delta        = 0;
-                            magic_number = 128;
-
-                            //read bytes while the marker bit (first one) is set
-                            while (b >= 128) {
-                                delta |= b - 128;
-                                delta <<= 7;
-
-                                magic_number <<= 7;
-
-                                b = codes[i++];
-                            }
-
-                            delta |= b;
-
-                            magic_number /= 2;
-                            delta -= magic_number;
-
-                            value = value + delta;
-
-                            if (shape._webgl.primType[primIdx] == gl.TRIANGLE_STRIP) {
-                                if (vertexIdx < 3) {
-                                    shape._webgl.dataBuffers[0].push(value);
-                                }
-                                else if ((vertexIdx % 2) == 0) {
-                                    shape._webgl.dataBuffers[0].push(preLastVal);
-                                    shape._webgl.dataBuffers[0].push(lastVal);
-                                    shape._webgl.dataBuffers[0].push(value);
-                                }
-                                else {
-                                    shape._webgl.dataBuffers[0].push(lastVal);
-                                    shape._webgl.dataBuffers[0].push(preLastVal);
-                                    shape._webgl.dataBuffers[0].push(value);
-                                }
-
-                                preLastVal = lastVal;
-                                lastVal    = value;
-                            }
-                            else {
-                                shape._webgl.dataBuffers[0].push(value);
-                            }
-
-                            ++vertexIdx;
-                        }
-                    }());
-
-                    //switch to non-indexed rendering
-                    shape._webgl.bitLODGeometry = -1;
-
-                    //create triangle render buffer with normals computed on-the-fly
-                    //(if data is already available ...)
-                    shape._webgl.generateTriangleBuffer();
-
-                    bitLODGeometry._mesh._numFaces  = shape._webgl.dataBuffers[0].length / 3;
-                    bitLODGeometry._mesh._numCoords = shape._webgl.dataBuffers[0].length;
-                }
-                else
-                {   
-                    var indicesBuffer = gl.createBuffer();
-                    shape._webgl.buffers[0] = indicesBuffer;
-                    
-                    if (bitLODGeometry.usesVLCIndices())
-                    {
-                        var decodedIndices = [];
-
-                        (function(){
-                            var codes = x3dom.Utils.getArrayBufferView("Uint8", XHR_buffer);
-                            var i = 0;
-                            var b;
-                            var delta;
-                            var magic_number;
-                            var value = 0;
-
-                            var vertexIdx = 0;
-                            var primIdx   = 0;
-                            var lastVal   = -1, preLastVal = -1;
-
-                            while (i < codes.length) {
-                                if (vertexIdx >= shape._cf.geometry.node._vf.vertexCount[primIdx]) {
-                                    ++primIdx;
-                                    vertexIdx = 0;
-                                }
-
-                                b = codes[i++];
-
-                                delta        = 0;
-                                magic_number = 128;
-
-                                //read bytes while the marker bit (first one) is set
-                                while (b >= 128) {
-                                    delta |= b - 128;
-                                    delta <<= 7;
-
-                                    magic_number <<= 7;
-
-                                    b = codes[i++];
-                                }
-
-                                delta |= b;
-
-                                magic_number /= 2;
-                                delta -= magic_number;
-
-                                value = value + delta;
-
-                                decodedIndices.push(value);
-
-                                ++vertexIdx;
-                            }
-                        }());
-
-                        indexArray = new Uint16Array(decodedIndices);
-                    }
-                    else
-                    {
-                        indexArray = x3dom.Utils.getArrayBufferView("Uint16", XHR_buffer);
-                    }
-
-                    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indicesBuffer);
-                    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexArray, gl.STATIC_DRAW);
-
-                    if (bitLODGeometry.getVertexCount(0) == 0)
-                        bitLODGeometry.setVertexCount(0, indexArray.length);
-
-                    bitLODGeometry._mesh._numFaces = 0;
-
-                    for (var p=0; p<bitLODGeometry.getNumPrimTypes(); p++) {
-                        if (shape._webgl.primType[p] == gl.TRIANGLE_STRIP)
-                            bitLODGeometry._mesh._numFaces += bitLODGeometry.getVertexCount(p) - 2;
-                        else
-                            bitLODGeometry._mesh._numFaces += bitLODGeometry.getVertexCount(p) / 3;
-                    }
-                }
-
-                indexArray = null;
-
-                shape._nameSpace.doc.downloadCount -= 1;
-                shape._nameSpace.doc.needRender = true;
-            };
-        }
-
-        function callBack(attributeId, bufferView)
-        {
-            if (typeof shape._webgl.loadedLevels == 'undefined') {
-                shape._webgl.loadedLevels   = 0;
-                bitLODGeometry.loadedLevels = 0;
-            }
-
-            shape._webgl.loadedLevels++;
-            bitLODGeometry.loadedLevels++;
-
-            if (bitLODGeometry.hasIndex() && bitLODGeometry.usesClientSideNormals()) {
-                if (typeof shape._webgl.dataBuffers == 'undefined')
-                    shape._webgl.dataBuffers = [];
-
-                if (attributeId === 0) {
-                    shape._webgl.dataBuffers[1] = bufferView;
-                }
-                else if (attributeId === 1) {
-                    shape._webgl.dataBuffers[3] = bufferView;
-                }
-                else if (attributeId === 2) {
-                    shape._webgl.dataBuffers[4] = bufferView;
-                }
-
-                shape._webgl.generateTriangleBuffer();
-            }
-            else
-            {
-                var buffer = gl.createBuffer();
-
-                if (attributeId === 0) {
-                    var attribTypeStr 		= bitLODGeometry._vf.coordType;
-
-                    shape._webgl.coordType  = x3dom.Utils.getVertexAttribType(attribTypeStr, gl);
-                    shape._webgl.normalType = shape._webgl.coordType;
-
-                    // calculate number of single data packages by including stride and type size
-                    var dataLen = shape._coordStrideOffset[0] / x3dom.Utils.getDataTypeSize(attribTypeStr);
-                    //@todo: we need numCoords before this callback is invoked
-                    if (dataLen && bitLODGeometry._vf.normalPerVertex)
-                        bitLODGeometry._mesh._numCoords = bufferView.length / dataLen;
-
-                    //Positions
-                    shape._webgl.buffers[1] = buffer;
-
-                    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-                    gl.bufferData(gl.ARRAY_BUFFER, bufferView, gl.STATIC_DRAW);
-
-                    gl.vertexAttribPointer(sp.position, shape._cf.geometry.node._mesh._numPosComponents,
-                        shape._webgl.coordType, false,
-                        shape._coordStrideOffset[0], shape._coordStrideOffset[1]);
-                    gl.enableVertexAttribArray(sp.position);
-
-                    //Normals
-                    shape._webgl.buffers[2] = buffer;
-
-                    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-                    gl.bufferData(gl.ARRAY_BUFFER, bufferView, gl.STATIC_DRAW);
-
-                    gl.vertexAttribPointer(sp.normal, shape._cf.geometry.node._mesh._numNormComponents,
-                        shape._webgl.normalType, false,
-                        shape._normalStrideOffset[0], shape._normalStrideOffset[1]);
-                    gl.enableVertexAttribArray(sp.normal);
-                }
-                else if (attributeId === 1)
-                {
-                    shape._webgl.texCoordType = shape._webgl.coordType;
-                    shape._webgl.buffers[3] = buffer;
-
-                    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-                    gl.bufferData(gl.ARRAY_BUFFER, bufferView, gl.STATIC_DRAW);
-
-                    gl.vertexAttribPointer(sp.texcoord, shape._cf.geometry.node._mesh._numTexComponents,
-                        shape._webgl.texCoordType, false,
-                        shape._texCoordStrideOffset[0], shape._texCoordStrideOffset[1]);
-                    gl.enableVertexAttribArray(sp.texcoord);
-                }
-                else if (attributeId === 2)
-                {
-                    shape._webgl.colorType = shape._webgl.coordType;
-                    shape._webgl.buffers[4] = buffer;
-
-                    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-                    gl.bufferData(gl.ARRAY_BUFFER, bufferView, gl.STATIC_DRAW);
-
-                    gl.vertexAttribPointer(sp.color, shape._cf.geometry.node._mesh._numColComponents,
-                        shape._webgl.colorType, false,
-                        shape._colorStrideOffset[0], shape._colorStrideOffset[1]);
-                    gl.enableVertexAttribArray(sp.color);
-                }
-
-                bufferView = null;
-            }
-
-            //shape._nameSpace.doc.downloadCount -= 1;
-            shape._nameSpace.doc.needRender = true;
-
-            shape._webgl.refinementJobManager.continueProcessing(attributeId);
-        }
-
-        //If there is still no BitComposer create a new one
-        //shape._webgl.bitLODComposer = new x3dom.BitLODComposer();
-        shape._webgl.refinementJobManager = new x3dom.RefinementJobManager();
-
-        //allocate buffers, pass them to the refinement manager
-        //@todo: method returns number of index entries - at the moment, we have no mechanism to get the
-        //       real number of vertices here, so we usually allocate too much memory
-        var numVerts = bitLODGeometry.getNumVertices();
-
-        var buf = new ArrayBuffer(12 * numVerts);
-        var interleavedCoordNormalBuffer = new Uint16Array(buf);
-
-        shape._webgl.refinementJobManager.addResultBuffer(0, interleavedCoordNormalBuffer);
-
-        for (var i = 0; i < bitLODGeometry.getCoordNormalURLs().length; ++i) {
-            shape._webgl.refinementJobManager.addRefinementJob(
-                0,                                     //attributeId / resultBufferId
-                i,                                     //download priority
-                bitLODGeometry.getCoordNormalURLs()[i],//data file url
-                i,                                     //refinement level (-> important for bit shift)
-                callBack,                              //'job finished'-callback
-                96,                                    //stride in bits (size of a single result element)
-                [3, 2],                                //number of components information array
-                [6, 2],                                //bits per refinement level information array
-                [0, 6],                                //read offset (bits) information array
-                [0, 64]);                              //write offset (bits) information array
-        }
-
-        if(bitLODGeometry.hasTexCoord()) {
-            var tBuf = new ArrayBuffer(4 * numVerts);
-            var texCoordBuffer = new Uint16Array(tBuf);
-
-            shape._webgl.refinementJobManager.addResultBuffer(1, texCoordBuffer);
-
-            for (i = 0; i < bitLODGeometry.getTexCoordURLs().length; ++i) {
-                shape._webgl.refinementJobManager.addRefinementJob(
-                    1,                           		//attributeId / resultBufferId
-                    i,                           		//download priority
-                    bitLODGeometry.getTexCoordURLs()[i], //data file url
-                    i,                           		//refinement level (-> important for bit shift)
-                    callBack,  							//'job finished'-callback
-                    32,                          		//stride in bits (size of a single result element)
-                    [2],                         		//number of components information array
-                    [8],                         		//bits per refinement level information array
-                    [0],                         		//read offset (bits) information array
-                    [0]);                        		//write offset (bits) information array
-            }
-        }
-
-        if(bitLODGeometry.hasColor()) {
-            var cBuf = new ArrayBuffer(6 * numVerts);
-            var colorBuffer = new Uint16Array(cBuf);
-
-            shape._webgl.refinementJobManager.addResultBuffer(2, colorBuffer);
-
-            for (i = 0; i < bitLODGeometry.getColorURLs().length; ++i) {
-                shape._webgl.refinementJobManager.addRefinementJob(
-                    2,                           		//attributeId / resultBufferId
-                    i,                           		//download priority
-                    bitLODGeometry.getColorURLs()[i],	//data file url
-                    i,                           		//refinement level (-> important for bit shift)
-                    callBack,  							//'job finished'-callback
-                    48,                          		//stride in bits (size of a single result element)
-                    [3],                         		//number of components information array
-                    [6],                         		//bits per refinement level information array
-                    [0],                         		//read offset (bits) information array
-                    [0]);                        		//write offset (bits) information array
-            }
-        }
-    }
 };
 
 /** setup/download image geometry */

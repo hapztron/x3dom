@@ -99,8 +99,9 @@ var urlMap = {
     Geospatial:"geodata.html",
     Geometry2D:"geometry2D.html",
     Geometry3D:"geometry3D.html",
+    Geometry3DExt:"geometry3D.html",
     Grouping:"group.html",
-    //H-Anim: "hanim.html",
+    "H-Anim": "hanim.html",
     Interpolation:"interp.html",
     KeyDeviceSensor:"keyboard.html",
     Layering:"layering.html",
@@ -163,6 +164,11 @@ function dumpFields(t, elem) {
     fieldInfo += "<tr align='left'><th>DataType</th><th>Name</th><th>DefaultValue</th></tr>";
 
     for (var fieldName in instance._vf) {
+        // initializing fields with non-X3D conform "undefined" (like in GeoViewpoint.js)
+        // is a rather bad idea!
+        if (instance._vf[fieldName] === undefined)
+            continue;
+
         isMultiField = (instance._vfFieldTypes[fieldName].charAt(0) == "M");
         var fieldValue = isMultiField ? "[" : "";
 

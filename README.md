@@ -1,7 +1,7 @@
 Welcome to X3DOM 
 ================
 X3DOM is a framework for integrating and manipulating (X)3D scenes as HTML5
-DOM elements, which are rendered via an X3D plugin, Flash/Stage3D or WebGL.
+DOM elements, which are rendered via WebGL without additional plugins.
 The open-source system allows defining 3D scene description and runtime
 behavior declaratively, without any low-level JavaScript or GLSL coding.
 
@@ -10,21 +10,22 @@ Getting started
 ---------------
 Please have a look at the official documentation in order to get started:
 
-http://x3dom.org/docs/dev/
+https://doc.x3dom.org (or https://x3dom-dev.surge.sh/latest/doc for doc. development)
 
+https://doc.x3dom.org/tutorials/basics/hello/index.html (https://x3dom-dev.surge.sh/latest/doc/tutorials/basics/hello/index.html) describes a minimal starter scene.
+
+https://www.x3dom.org/download (or https://x3dom-dev.surge.sh/latest/ for latest development) serves various versions of the x3dom framework. 
 
 Need help?
 ----------
-If you want to use X3DOM and seek help and exchange of knowledge, please use
-the x3dom-users mailing list or the forums. Beginner questions usually have
+If you want to use X3DOM and seek help or sharing of knowledge, please use
+the [x3dom-users][] mailing list or the forums. Beginner questions usually have
 been asked already and in many cases the mailinglist or forum archives provide
 quick answers to many questions.
 
 If you decide to post to the mailing list or forum, please include as much
 info as possible and describe your problem and what you tried already
-succinctly. Also read the "Troubleshooting" section and the
-"How To Ask Questions" in order to increase the likelihood of receiving an
-answer that actually helps you (http://x3dom.org/docs/dev/troubleshooting.html).
+succinctly.
 
 
 Mailing List
@@ -120,8 +121,6 @@ to drop, re-arrange, merge, and reword commits, e.g.:
 
 There's always the [x3dom-dev][] mailinglist.
 
-
-More information can be found here: http://x3dom.org/docs/latest/internals/
 
 [x3dom-users]:   https://lists.sourceforge.net/lists/listinfo/x3dom-users
 [x3dom-dev]:     https://lists.sourceforge.net/lists/listinfo/x3dom-developers

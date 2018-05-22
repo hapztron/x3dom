@@ -54,6 +54,10 @@ x3dom.DrawableCollection = function (drawableCollectionConfig) {
 };
 
 /**
+ * Returns the result of the culling process, including view frustum culling and small feature culling.
+ * A value > 0 identifies a plane mask, indicating that the object is inside the frustum with respect to
+ * the respective planes (and large enough), -1 means the object was culled
+ * "0" is a rare case, indicating that the object intersects with all planes of the frustum
  *  graphState = {
  *     boundedNode:  backref to bounded node object
  *     localMatrix:  mostly identity
@@ -68,7 +72,7 @@ x3dom.DrawableCollection.prototype.cull = function (transform, graphState, singl
     var node = graphState.boundedNode;  // get ref to SG node
 
     if (!node || !node._vf.render) {
-        return 0;   // <0 outside, >0 inside, but can't tell in this case
+        return -1;
     }
 
     var volume = node.getVolume();      // create on request
@@ -88,8 +92,11 @@ x3dom.DrawableCollection.prototype.cull = function (transform, graphState, singl
 
         if (planeMask < MASK_SET)
             planeMask = this.viewFrustum.intersect(wvol, planeMask);
-        if (planeMask <= 0) {
-            return -1;      // if culled return -1; 0 should never happen
+
+        //-1 indicates that the object has been culled
+        if (planeMask == -1)
+        {
+            return -1;
         }
     }
     else {
@@ -114,14 +121,14 @@ x3dom.DrawableCollection.prototype.cull = function (transform, graphState, singl
 
         if (this.smallFeatureThreshold > 0 && graphState.coverage < this.smallFeatureThreshold && 
             graphState.needCulling) {
-            return 0;   // differentiate between outside and this case
+            return -1;
         }
     }
 
     // not culled, incr node cnt
     this.numberOfNodes++;
     
-    return planeMask;   // >0, inside
+    return planeMask;   // >= 0 means inside or overlap
 };
 
 /**
@@ -260,7 +267,7 @@ x3dom.DrawableCollection.prototype.calculatePriority = function (graphState) {
 };
 
 /**
- *
+ *  Concatenate opaque and transparent drawables
  */
 x3dom.DrawableCollection.prototype.concat = function () {
     var opaque = (this.collection['opaque'] !== undefined) ? this.collection['opaque'] : [];
@@ -271,25 +278,26 @@ x3dom.DrawableCollection.prototype.concat = function () {
 };
 
 /**
- *
+ *  Get drawable for id
  */
 x3dom.DrawableCollection.prototype.get = function (idx) {
     return this.collection[idx];
 };
 
 /**
- *
+ * Sort the DrawableCollection
  */
 x3dom.DrawableCollection.prototype.sort = function () {
     var opaque = [];
     var transparent = [];
+    var that = this;
 
     //Sort opaque drawables
     if (this.collection['opaque'] !== undefined) {
         // never call this for very big scenes, getting very slow; try binning approach
         if (this.sortOpaque) {
             this.collection['opaque'].sort(function (a, b) {
-                if (a.sortKey == b.sortKey || !this.sortBySortKey) {
+                if (a.sortKey == b.sortKey || !that.sortBySortKey) {
                     //Second sort criteria (priority)
                     return b.priority - a.priority;
                 }
@@ -304,8 +312,8 @@ x3dom.DrawableCollection.prototype.sort = function () {
     if (this.collection['transparent'] !== undefined) {
         if (this.sortTrans) {
             this.collection['transparent'].sort(function (a, b) {
-                if (a.sortKey == b.sortKey || !this.sortBySortKey) {
-                    if (a.priority == b.priority || !this.sortByPriority) {
+                if (a.sortKey == b.sortKey || !that.sortBySortKey) {
+                    if (a.priority == b.priority || !that.sortByPriority) {
                         //Third sort criteria (zPos)
                         return a.zPos - b.zPos;
                     }
@@ -325,15 +333,16 @@ x3dom.DrawableCollection.prototype.sort = function () {
 
 x3dom.DrawableCollection.prototype.forEach = function (fnc, maxPriority) {
     //Set maximal priority
-    maxPriority = typeof maxPriority !== 'undefined' ? Math.min(maxPriority, this.prioLevels) : this.prioLevels;
+    maxPriority = (maxPriority !== undefined) ? Math.min(maxPriority, this.prioLevels) : this.prioLevels;
 
     //Define run variables
     var sortKey, priority, shaderID, drawable;
 
     //First traverse Opaque drawables
+    // TODO; FIXME; this is wrong, sortKey can also be negative!
     for (sortKey=0; sortKey<this.collection['opaque'].length; ++sortKey)
     {
-        if (this.collection['opaque'][sortkey] !== undefined)
+        if (this.collection['opaque'][sortKey] !== undefined)
         {
             for (priority=this.collection['opaque'][sortKey].length; priority>0; --priority)
             {
@@ -341,7 +350,7 @@ x3dom.DrawableCollection.prototype.forEach = function (fnc, maxPriority) {
                 {
                     for (shaderID in this.collection['opaque'][sortKey][priority])
                     {
-                        for (drawable=0; drawable<this.collection['opaque'][sortKey][priority][shaderID].lenght; ++drawable)
+                        for (drawable=0; drawable<this.collection['opaque'][sortKey][priority][shaderID].length; ++drawable)
                         {
                             fnc( this.collection['opaque'][sortKey][priority][shaderID][drawable] );
                         }
@@ -352,9 +361,10 @@ x3dom.DrawableCollection.prototype.forEach = function (fnc, maxPriority) {
     }
 
     //Next traverse transparent drawables
+    // TODO; FIXME; this is wrong, sortKey can also be negative!
     for (sortKey=0; sortKey<this.collection['transparent'].length; ++sortKey)
     {
-        if (this.collection['transparent'][sortkey] !== undefined)
+        if (this.collection['transparent'][sortKey] !== undefined)
         {
             for (priority=this.collection['transparent'][sortKey].length; priority>0; --priority)
             {
@@ -367,7 +377,7 @@ x3dom.DrawableCollection.prototype.forEach = function (fnc, maxPriority) {
                             return a.zPos - b.zPos
                         });
 
-                        for (drawable=0; drawable<this.collection['transparent'][sortKey][priority][shaderId].lenght; ++drawable)
+                        for (drawable=0; drawable<this.collection['transparent'][sortKey][priority][shaderId].length; ++drawable)
                         {
                             fnc( this.collection['transparent'][sortKey][priority][shaderId][drawable] );
                         }

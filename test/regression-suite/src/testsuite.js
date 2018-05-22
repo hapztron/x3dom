@@ -1,28 +1,69 @@
 var testtypes = require("./testtypes.js");
+var fs = require("fs");
+var webdriver = require("selenium-webdriver");
 var retry_delay = 20;
 
-var TestSuite = function(urlPrefix, outputPath, profile, tests, driver)
+var TestSuite = function(config)
 {
     var that = this;
 
-    this.urlPrefix = urlPrefix;
-    this.outputPath = outputPath;
-    this.profile = profile;
-    this.testList = tests;
+    this.profile;
+    this.testList;
 
-    this.driver = driver;
+    this.driver;
+
+    this.config = config;
 
     //current testing status
+    this.currentProfile = 0;
     this.currentTestId = 0;
     this.working = false;
     this.currentStepId = 0;
     this.stepWorking = false;
     this.currentResult;
+    this.id;
 
     //results array
     this.results = [];
 
     //------------------------------------------------------------------------------------------------------------------
+
+
+
+    //read test configuration file and start regression
+    this.startTesting = function(resultsFunc, callback){
+        runProfile();
+
+        function runProfile()
+        {
+            if(that.currentProfile < that.config.profiles.length)
+            {
+                that.profile = that.config.profiles[that.currentProfile++];
+                that.driver = eval("("+that.profile.command+")")();
+                that.testList = that.config.tests;
+
+                console.log("Running tests for profile: "+that.profile.name);
+                that.currentTestId = 0;
+                that.id = new Date().getTime();
+                that.results = [];
+                that.runTests(function(profile, results){
+                    //store results then publish them
+                    if(!globals.testOnly)
+                    {
+                        resultsFunc(profile, results, that.id, function(){
+                            runProfile();
+                        });
+                    }
+                });
+            }
+            else
+            {
+                callback();
+            }
+        }
+
+    }
+
 
     //sequentially runs the defined tests
     this.runTests =  function(callback)
@@ -47,7 +88,7 @@ var TestSuite = function(urlPrefix, outputPath, profile, tests, driver)
             {
                 that.driver.close();
                 that.driver.quit();
-                that.callback(profile, that.results);
+                that.callback(that.profile, that.results);
             }
         }
     }
@@ -56,7 +97,7 @@ var TestSuite = function(urlPrefix, outputPath, profile, tests, driver)
 
     this.runTest = function(test)
     {
-        var url = that.urlPrefix+test.url;
+        var url = that.config.urlPrefix+test.url;
         console.log("Testing on " + that.profile.name + ": " + url);
 
         var split = test.url.split("/");
@@ -100,11 +141,13 @@ var TestSuite = function(urlPrefix, outputPath, profile, tests, driver)
         {
             var context =
             {
-                outputPath : that.outputPath +"/" + profile.name,
+                outputPath : that.config.dbPath + "/" + that.profile.name + "/" + that.id,
                 driver : that.driver,
                 test : test,
                 stepId : that.currentStepId,
                 result : that.currentResult,
+                config : that.config,
+
                 finishedCallback: function()
                 {
                     that.currentStepId ++;
@@ -127,13 +170,13 @@ var TestSuite = function(urlPrefix, outputPath, profile, tests, driver)
 //----------------------------------------------------------------------------------------------------------------------
 
 exports.TestSuite = TestSuite;
-exports.TestSuite.runTests = TestSuite.runTests;
+exports.TestSuite.startTesting = TestSuite.startTesting;
 
 //----------------------------------------------------------------------------------------------------------------------
 
 function TestResult(test)
 {
-    this.test = test;
+    this.testName = test.name;
     this.details = [];
 }
 

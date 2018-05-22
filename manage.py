@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# coding=utf-8
 from __future__ import with_statement
 # -------------------------------------------------------------------
 # NOTE:
@@ -68,9 +69,9 @@ from __future__ import with_statement
 try:
     import argparse
 except:
-    print "\nYou need to install argparse. Please run the following command:"
-    print "on your command line and try again:\n"
-    print "    easy_install argparse\n"
+    print("\nYou need to install argparse. Please run the following command:")
+    print("on your command line and try again:\n")
+    print("    easy_install argparse\n")
     exit()
 
 import os
@@ -80,11 +81,12 @@ from contextlib import closing
 from zipfile import ZipFile, ZIP_DEFLATED
 
 from tools import x3dom_packer
-from tools.packages import FULL_PROFILE, CORE_PROFILE, COMPONENTS, prefix_path
+from tools.packages import FULL_PHYS_PROFILE, FULL_PROFILE, CORE_PROFILE, EXTENSIONS, COMPRESSED_EXT_LIBS, prefix_path
 
 
 PROJECT_ROOT = os.path.dirname(__file__)
 SRC_ROOT = os.path.join(PROJECT_ROOT, 'src')
+LIB_ROOT = os.path.join(PROJECT_ROOT, 'lib')
 DIST_ROOT = os.path.join(PROJECT_ROOT, 'dist')
 DOC_ROOT = os.path.join(PROJECT_ROOT, 'doc')
 GUIDE_ROOT = os.path.join(DOC_ROOT, 'guide')
@@ -100,44 +102,59 @@ def build(mode='production'):
     packer = x3dom_packer.packer()
     
     # building compressed files
-    packer.build(prefix_path(FULL_PROFILE, SRC_ROOT), "dist/x3dom-full.js", "jsmin", include_version=True)
-    packer.build(prefix_path(CORE_PROFILE, SRC_ROOT), "dist/x3dom.js", "jsmin", include_version=True)
+    packer.build(CORE_PROFILE, "dist/x3dom.js", "jsmin", include_version=True, src_prefix_path=SRC_ROOT)
+    packer.build(FULL_PROFILE, "dist/x3dom-full.js", "jsmin", include_version=True, src_prefix_path=SRC_ROOT)
+    packer.build(FULL_PHYS_PROFILE, "dist/x3dom-full-physics.js", "jsmin", include_version=True, src_prefix_path=SRC_ROOT) 	
+    # add compressed external libraries to full release
+    packer.build(COMPRESSED_EXT_LIBS + [("x3dom-full-physics.js", ["../dist/x3dom-full-physics.js"])], "dist/x3dom-full-physics.js", 'none', src_prefix_path=SRC_ROOT)
+    
         
     if not mode == 'no-debug':
         # building plain files (debug)
-        packer.build(prefix_path(FULL_PROFILE, SRC_ROOT), "dist/x3dom-full.debug.js", 'none')
-        packer.build(prefix_path(CORE_PROFILE, SRC_ROOT), "dist/x3dom.debug.js", 'none')
+        packer.build(FULL_PHYS_PROFILE, "dist/x3dom-full-physics.debug.js", 'none', src_prefix_path=SRC_ROOT)
+        packer.build(FULL_PROFILE, "dist/x3dom-full.debug.js", 'none', src_prefix_path=SRC_ROOT)
+        packer.build(CORE_PROFILE, "dist/x3dom.debug.js", 'none', src_prefix_path=SRC_ROOT)
+        # add compressed external libraries to full release
+        packer.build(COMPRESSED_EXT_LIBS + [("x3dom-full-physics.debug.js", ["../dist/x3dom-full-physics.debug.js"])], "dist/x3dom-full-physics.debug.js", 'none', src_prefix_path=SRC_ROOT)
+    
 
     # ~~~~ copy copy components extras ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    print("\nBundling components...")
+    print("\nBundling extensions...")
     nodes_dest = os.path.join(DIST_ROOT, 'components')
 
     if not os.path.exists(nodes_dest):
         os.makedirs(nodes_dest)
         
-    for src in prefix_path(COMPONENTS, SRC_ROOT):
+    for (component, files) in EXTENSIONS:
+        packer.build([(component, files)], os.path.join(nodes_dest, os.path.basename(component + '.js')), 'jsmin', include_version=False, src_prefix_path=SRC_ROOT)
+
         try:
-            print "  Copying file %s to %s" % (src, nodes_dest)
-            packer.build([src], os.path.join(nodes_dest, os.path.basename(src)), 'jsmin', include_version=False)
+            """
+            #Handle special case (folder instead of single js file):
+            if not src.endswith(".js"):
+                #Construct name for concatenated file:
+                if src.endswith("/"):
+                    filename = src[:-1]+".js"
+                else:
+                    filename = src+".js"
+                print "  Copying files from folder %s concatenated as %s to %s" % (src, filename, nodes_dest)
+            else:
+                print "  Copying file %s to %s" % (src, nodes_dest)
+                filename = src
+            """
 #            shutil.copy(src, nodes_dest)
         except:
-            print "  Error copying file %s" % src
+            print("  Error copying file to %s" % component)
     # done with components
-    
-    # ~~ copy other files ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    dist_docs = os.path.join(DIST_ROOT, 'docs')
-    if not os.path.exists(dist_docs):
-        os.makedirs(dist_docs)
 
     print("\nCopying additional files")
     shutil.copy('README.md', DIST_ROOT)
     shutil.copy('LICENSE', DIST_ROOT)
-    shutil.copy('CHANGELOG', DIST_ROOT)
+    shutil.copy('RELEASENOTES.rst', DIST_ROOT)
     shutil.copy('AUTHORS', DIST_ROOT)
     shutil.copy(SRC_ROOT + '/x3dom.css', DIST_ROOT)
-    shutil.copy(SRC_ROOT + '/flashbackend/bin/x3dom.swf', DIST_ROOT)
-    shutil.copy(DOC_ROOT + '/help/dumpNodeTypeTree.html', DIST_ROOT + '/docs')
-    shutil.copy(SRC_ROOT + '/dash.all.js', DIST_ROOT)
+    shutil.copy(LIB_ROOT + '/dash.all.js', DIST_ROOT)
+    shutil.copy(LIB_ROOT + '/ammo.js', DIST_ROOT)
     # end other files
 
 def _build_examples():
@@ -154,8 +171,12 @@ def release(version='snapshot'):
     _zipdir(DIST_ROOT, 'dist/x3dom-%s.zip' % version)
 
 def runserver():
-    import SimpleHTTPServer
-    import SocketServer
+    try:
+        import http.server as SimpleHTTPServer
+        import socketserver as SocketServer
+    except ImportError:
+        import SimpleHTTPServer
+        import SocketServer
 
     print("Starting development server...")
     print("Open your browser and visit http://localhost:8080/")

@@ -85,18 +85,23 @@ x3dom.shader.DynamicShader.prototype.generateVertexShader = function(gl, propert
 	
 	//Normals
 	if(properties.LIGHTS) {
-		shader += "varying vec3 fragNormal;\n";
-		shader += "uniform mat4 normalMatrix;\n";
-		if(properties.IMAGEGEOMETRY) {		
-			shader += "uniform sampler2D IG_normals;\n";	
+		if(properties.NORMALMAP && properties.NORMALSPACE == "OBJECT") {
+			//do nothing
 		} else {
-			if(properties.NORCOMPONENTS == 2) {
-				if(properties.POSCOMPONENTS != 4) {
-					shader += "attribute vec2 normal;\n";
-				}
-			} else if(properties.NORCOMPONENTS == 3) {
-				shader += "attribute vec3 normal;\n";
-			}
+			shader += "varying vec3 fragNormal;\n";
+			shader += "uniform mat4 normalMatrix;\n";
+
+            if(properties.IMAGEGEOMETRY) {
+                shader += "uniform sampler2D IG_normals;\n";
+            } else {
+                if (properties.NORCOMPONENTS == 2) {
+                    if (properties.POSCOMPONENTS != 4) {
+                        shader += "attribute vec2 normal;\n";
+                    }
+                } else if (properties.NORCOMPONENTS == 3) {
+                    shader += "attribute vec3 normal;\n";
+                }
+            }
 		}
 	}
 		
@@ -122,12 +127,12 @@ x3dom.shader.DynamicShader.prototype.generateVertexShader = function(gl, propert
 	}
 
 	//Textures
-	if(properties.TEXTURED || properties.CSSHADER) {
+	if(properties.TEXTURED) {
 		shader += "varying vec2 fragTexcoord;\n";
 		if(!properties.SPHEREMAPPING) {
 			if(properties.IMAGEGEOMETRY) {
 				shader += "uniform sampler2D IG_texCoords;\n";
-			} else {
+			} else if (!properties.IS_PARTICLE) {
 				shader += "attribute vec2 texcoord;\n";
 			}
 		}
@@ -135,7 +140,7 @@ x3dom.shader.DynamicShader.prototype.generateVertexShader = function(gl, propert
 			shader += "uniform mat4 texTrafoMatrix;\n";
 		}
 
-		if(properties.NORMALMAP && !x3dom.caps.STD_DERIVATIVES) {
+		if(properties.NORMALMAP && properties.NORMALSPACE == "TANGENT" && !x3dom.caps.STD_DERIVATIVES) {
 
             x3dom.debug.logWarning("Your System doesn't support the 'OES_STANDARD_DERIVATIVES' Extension. " +
                                    "You must set tangents and binormals manually via the FloatVertexAttribute-Node " +
@@ -152,25 +157,34 @@ x3dom.shader.DynamicShader.prototype.generateVertexShader = function(gl, propert
 			shader += "uniform mat4 viewMatrix;\n";
 		}
         if (properties.DISPLACEMENTMAP) {
-          shader += "uniform sampler2D displacementMap;\n";
-          shader += "uniform float displacementFactor;\n";
-          shader += "uniform float displacementWidth;\n";
-          shader += "uniform float displacementHeight;\n";
-            shader += "uniform float displacementAxis;\n";
-        }
-        if (properties.DIFFPLACEMENTMAP) {
-            shader += "uniform sampler2D diffuseDisplacementMap;\n";
+            shader += "uniform sampler2D displacementMap;\n";
             shader += "uniform float displacementFactor;\n";
             shader += "uniform float displacementWidth;\n";
             shader += "uniform float displacementHeight;\n";
             shader += "uniform float displacementAxis;\n";
         }
+        if (properties.DIFFPLACEMENTMAP) {
+			shader += "uniform sampler2D diffuseDisplacementMap;\n";
+			shader += "uniform float displacementFactor;\n";
+			shader += "uniform float displacementWidth;\n";
+			shader += "uniform float displacementHeight;\n";
+			shader += "uniform float displacementAxis;\n";
+		}
 	}
+
+	if (properties.VERTEXID) {
+		shader += "attribute float id;\n";
+		shader += "varying float fragID;\n";
+	}
+
+    if (properties.IS_PARTICLE) {
+        shader += "attribute vec3 particleSize;\n";
+    }
 	
 	//Lights & Fog
-	if(properties.LIGHTS || properties.FOG){
+	if(properties.LIGHTS || properties.FOG || properties.CLIPPLANES){
 		shader += "uniform vec3 eyePosition;\n";
-		shader += "varying vec3 fragPosition;\n";
+		shader += "varying vec4 fragPosition;\n";
 		if(properties.FOG) {
 			shader += "varying vec3 fragEyePosition;\n";
 		}
@@ -197,9 +211,6 @@ x3dom.shader.DynamicShader.prototype.generateVertexShader = function(gl, propert
 	* Generate main function
 	********************************************************************************/
 	shader += "void main(void) {\n";
-	
-	//Set point size
-	shader += "gl_PointSize = 2.0;\n";	
   
 	/*******************************************************************************
 	* Start of special Geometry switch
@@ -246,7 +257,7 @@ x3dom.shader.DynamicShader.prototype.generateVertexShader = function(gl, propert
 		}
 		
 		//TexCoords
-		if(properties.TEXTURED || properties.CSSHADER) {
+		if(properties.TEXTURED) {
 			shader += "vec4 IG_doubleTexCoords = texture2D( IG_texCoords, IG_texCoord );\n";
 			shader += "vec2 vertTexCoord;";
 			shader += "vertTexCoord.r = (IG_doubleTexCoords.r * 0.996108948) + (IG_doubleTexCoords.b * 0.003891051);\n";
@@ -297,13 +308,17 @@ x3dom.shader.DynamicShader.prototype.generateVertexShader = function(gl, propert
 				shader += "vertNormal.y = sinCosThetaPhi.x * sinCosThetaPhi.y; \n";
 				shader += "vertNormal.z = sinCosThetaPhi.z; \n";                
 			} else {
-				shader += "vec3 vertNormal = normal;\n";
-				if (properties.REQUIREBBOXNOR) {
-                    shader += "vertNormal = vertNormal / bgPrecisionNorMax;\n";                    
+				if (properties.NORMALMAP && properties.NORMALSPACE == "OBJECT") {
+					//Nothing to do
+				} else {
+					shader += "vec3 vertNormal = normal;\n";
+					if (properties.REQUIREBBOXNOR) {
+						shader += "vertNormal = vertNormal / bgPrecisionNorMax;\n";
+					}
+					if (properties.POPGEOMETRY) {
+						shader += "vertNormal = 2.0*vertNormal - 1.0;\n";
+					}
 				}
-                if (properties.BITLODGEOMETRY || properties.POPGEOMETRY) {
-                    shader += "vertNormal = 2.0*vertNormal - 1.0;\n";
-                }                
 			}
 		}
 		
@@ -317,11 +332,16 @@ x3dom.shader.DynamicShader.prototype.generateVertexShader = function(gl, propert
 		}
 		
 		//TexCoords
-		if( (properties.TEXTURED || properties.CSSHADER) && !properties.SPHEREMAPPING) {
-			shader += "vec2 vertTexCoord = texcoord;\n";
-			if(properties.REQUIREBBOXTEX) {
-				shader += "vertTexCoord = vertTexCoord / bgPrecisionTexMax;\n";
-			}
+		if( (properties.TEXTURED) && !properties.SPHEREMAPPING) {
+            if (properties.IS_PARTICLE) {
+                shader += "vec2 vertTexCoord = vec2(0.0);\n";
+            }
+            else {
+                shader += "vec2 vertTexCoord = texcoord;\n";
+                if (properties.REQUIREBBOXTEX) {
+                    shader += "vertTexCoord = vertTexCoord / bgPrecisionTexMax;\n";
+                }
+            }
 		}
 	}
 	
@@ -332,7 +352,7 @@ x3dom.shader.DynamicShader.prototype.generateVertexShader = function(gl, propert
 	
 	//Normals
 	if(properties.LIGHTS) {
-        if (properties.DISPLACEMENTMAP || properties.DIFFPLACEMENTMAP && !properties.NORMALMAP) {
+        if ((properties.DISPLACEMENTMAP || properties.DIFFPLACEMENTMAP) && !properties.NORMALMAP) {
           //Map-Tile Size
           shader += "float dx = 1.0 / displacementWidth;\n";
           shader += "float dy = 1.0 / displacementHeight;\n";
@@ -372,6 +392,9 @@ x3dom.shader.DynamicShader.prototype.generateVertexShader = function(gl, propert
           shader += "calcNormal = normalize(calcNormal);\n";
           shader += "fragNormal = (normalMatrix * vec4(calcNormal, 0.0)).xyz;\n";
         }
+		else if (properties.NORMALMAP && properties.NORMALSPACE == "OBJECT") {
+			//Nothing to do
+		}
         else
         {
             shader += "fragNormal = (normalMatrix * vec4(vertNormal, 0.0)).xyz;\n";
@@ -379,10 +402,11 @@ x3dom.shader.DynamicShader.prototype.generateVertexShader = function(gl, propert
 	}
     
 	//Textures
-	if(properties.TEXTURED || properties.CSSHADER){
+	if(properties.TEXTURED){
 		if(properties.CUBEMAP) {
 			shader += "fragViewDir = (viewMatrix[3].xyz);\n";
-		} else if (properties.SPHEREMAPPING) {
+		}
+		if (properties.SPHEREMAPPING) {
 			shader += " fragTexcoord = 0.5 + fragNormal.xy / 2.0;\n";
 		} else if(properties.TEXTRAFO) {
 			shader += " fragTexcoord = (texTrafoMatrix * vec4(vertTexCoord, 1.0, 1.0)).xy;\n";
@@ -396,19 +420,24 @@ x3dom.shader.DynamicShader.prototype.generateVertexShader = function(gl, propert
 			// LOD LUT HACK ###
 		}
 
-		if(properties.NORMALMAP  && !x3dom.caps.STD_DERIVATIVES) {
+		if(properties.NORMALMAP && properties.NORMALSPACE == "TANGENT" && !x3dom.caps.STD_DERIVATIVES) {
 			shader += "fragTangent  = (normalMatrix * vec4(tangent, 0.0)).xyz;\n";
 			shader += "fragBinormal = (normalMatrix * vec4(binormal, 0.0)).xyz;\n";
 		}
 	}
 	
 	//Lights & Fog
-	if(properties.LIGHTS || properties.FOG){    
-		shader += "fragPosition = (modelViewMatrix * vec4(vertPosition, 1.0)).xyz;\n";
+	if(properties.LIGHTS || properties.FOG || properties.CLIPPLANES){
+		shader += "fragPosition = (modelViewMatrix * vec4(vertPosition, 1.0));\n";
 		if (properties.FOG) {
-			shader += "fragEyePosition = eyePosition - fragPosition;\n";
+			shader += "fragEyePosition = eyePosition - fragPosition.xyz;\n";
 		}
 	}
+
+    //Vertex ID's
+    if (properties.MULTIDIFFALPMAP) {
+        shader += "fragID = id;\n";
+    }
   
 	//Displacement
     if (properties.DISPLACEMENTMAP) {
@@ -419,8 +448,18 @@ x3dom.shader.DynamicShader.prototype.generateVertexShader = function(gl, propert
         shader += "vertPosition += normalize(vertNormal) * texture2D(diffuseDisplacementMap, vec2(fragTexcoord.x, 1.0-fragTexcoord.y)).a * displacementFactor;\n";
     }
   
-  //Positions
+    //Positions
 	shader += "gl_Position = modelViewProjectionMatrix * vec4(vertPosition, 1.0);\n";
+
+    //Set point size
+    if (properties.IS_PARTICLE) {
+        shader += "float spriteDist = (gl_Position.w > 0.000001) ? gl_Position.w : 0.000001;\n";
+        shader += "float pointSize = floor(length(particleSize) * 256.0 / spriteDist + 0.5);\n";
+        shader += "gl_PointSize = clamp(pointSize, 2.0, 256.0);\n";
+    }
+    else {
+        shader += "gl_PointSize = 2.0;\n";
+    }
   
 	//END OF SHADER
 	shader += "}\n";
@@ -442,10 +481,6 @@ x3dom.shader.DynamicShader.prototype.generateVertexShader = function(gl, propert
  */
 x3dom.shader.DynamicShader.prototype.generateFragmentShader = function(gl, properties)
 {
-	/*var shader = "#ifdef GL_ES\n" +
-    			 "  precision highp float;\n" +
-    			 "#endif\n\n";*/
-    
   var shader = "#ifdef GL_FRAGMENT_PRECISION_HIGH\n";
   shader += " precision highp float;\n";
   shader += "#else\n";
@@ -459,9 +494,14 @@ x3dom.shader.DynamicShader.prototype.generateFragmentShader = function(gl, prope
 	//Default Matrices
 	shader += "uniform mat4 modelMatrix;\n";
     shader += "uniform mat4 modelViewMatrix;\n";
+    shader += "uniform mat4 viewMatrixInverse;\n";
 	
 	//Material
-	shader += x3dom.shader.material();
+    shader += x3dom.shader.material();
+
+    if (properties.TWOSIDEDMAT) {
+        shader += x3dom.shader.twoSidedMaterial();
+    }
 	
 	//Colors
 	if(properties.VERTEXCOLOR){
@@ -471,20 +511,57 @@ x3dom.shader.DynamicShader.prototype.generateFragmentShader = function(gl, prope
 			shader += "varying vec4 fragColor;  \n";
 		}
 	}
+
+    if(properties.CUBEMAP || properties.CLIPPLANES)
+    {
+        shader += "uniform mat4 modelViewMatrixInverse;\n";
+    }
+
+	//VertexID
+	if (properties.VERTEXID) {
+		shader += "varying float fragID;\n";
+
+		if (properties.MULTIDIFFALPMAP) {
+			shader += "uniform sampler2D multiDiffuseAlphaMap;\n";
+			shader += "uniform float multiDiffuseAlphaWidth;\n";
+			shader += "uniform float multiDiffuseAlphaHeight;\n";
+		}
+		if (properties.MULTIEMIAMBMAP) {
+			shader += "uniform sampler2D multiEmissiveAmbientMap;\n";
+			shader += "uniform float multiEmissiveAmbientWidth;\n";
+			shader += "uniform float multiEmissiveAmbientHeight;\n";
+		}
+		if (properties.MULTISPECSHINMAP) {
+			shader += "uniform sampler2D multiSpecularShininessMap;\n";
+			shader += "uniform float multiSpecularShininessWidth;\n";
+			shader += "uniform float multiSpecularShininessHeight;\n";
+		}
+		if (properties.MULTIVISMAP) {
+			shader += "uniform sampler2D multiVisibilityMap;\n";
+			shader += "uniform float multiVisibilityWidth;\n";
+			shader += "uniform float multiVisibilityHeight;\n";
+		}
+	}
 	
 	//Textures
-	if(properties.TEXTURED || properties.CSSHADER) {
+	if(properties.TEXTURED) {
 		shader += "varying vec2 fragTexcoord;\n";
-		if((properties.TEXTURED || properties.DIFFUSEMAP) && !properties.CUBEMAP) {
+		if((properties.TEXTURED || properties.DIFFUSEMAP)) {
 			shader += "uniform sampler2D diffuseMap;\n";
-		} else if(properties.CUBEMAP) {
-			shader += "uniform samplerCube cubeMap;\n";
-			shader += "varying vec3 fragViewDir;\n";
-			shader += "uniform mat4 modelViewMatrixInverse;\n";
 		}
+        if(properties.CUBEMAP) {
+            shader += "uniform samplerCube environmentMap;\n";
+            shader += "varying vec3 fragViewDir;\n";
+            if(properties.CSSHADER) {
+                shader += "uniform float environmentFactor;\n";
+            }
+        }
 		if(properties.SPECMAP){
 			shader += "uniform sampler2D specularMap;\n";
 		}
+        if(properties.SHINMAP){
+            shader += "uniform sampler2D shininessMap;\n";
+        }
         if (properties.DISPLACEMENTMAP) {
           shader += "uniform sampler2D displacementMap;\n";
           shader += "uniform float displacementWidth;\n";
@@ -498,13 +575,19 @@ x3dom.shader.DynamicShader.prototype.generateFragmentShader = function(gl, prope
         if(properties.NORMALMAP){
             shader += "uniform sampler2D normalMap;\n";
 
-            if(x3dom.caps.STD_DERIVATIVES) {
-                shader += "#extension GL_OES_standard_derivatives:enable\n";
-                shader += x3dom.shader.TBNCalculation();
-            } else {
-                shader += "varying vec3 fragTangent;\n";
-                shader += "varying vec3 fragBinormal;\n";
-            }
+			if(properties.NORMALSPACE == "TANGENT") {
+
+				if (x3dom.caps.STD_DERIVATIVES) {
+					shader += "#extension GL_OES_standard_derivatives:enable\n";
+					shader += x3dom.shader.TBNCalculation();
+				} else {
+					shader += "varying vec3 fragTangent;\n";
+					shader += "varying vec3 fragBinormal;\n";
+				}
+			} else if(properties.NORMALSPACE == "OBJECT") {
+
+				shader += "uniform mat4 normalMatrix;\n";
+			}
         }
 	}
 	
@@ -512,13 +595,28 @@ x3dom.shader.DynamicShader.prototype.generateFragmentShader = function(gl, prope
 	if(properties.FOG) {
 		shader += x3dom.shader.fog();
 	}
-	
+
+    if(properties.LIGHTS || properties.CLIPPLANES)
+    {
+        shader += "varying vec4 fragPosition;\n";
+        shader += "uniform float isOrthoView;\n";
+    }
+
 	//Lights
 	if(properties.LIGHTS) {
-		shader += "varying vec3 fragNormal;\n";
-    shader += "varying vec3 fragPosition;\n";
+
+		if(properties.NORMALMAP && properties.NORMALSPACE == "OBJECT") {
+			//do nothing
+		} else {
+			shader += "varying vec3 fragNormal;\n";
+		}
+
 		shader += x3dom.shader.light(properties.LIGHTS);
 	}
+
+    if(properties.CLIPPLANES) {
+        shader += x3dom.shader.clipPlanes(properties.CLIPPLANES);
+    }
 
     // Declare gamma correction for color computation (see property "GAMMACORRECTION")
     shader += x3dom.shader.gammaCorrectionDecl(properties);
@@ -528,6 +626,12 @@ x3dom.shader.DynamicShader.prototype.generateFragmentShader = function(gl, prope
 	* Generate main function
 	********************************************************************************/
 	shader += "void main(void) {\n";
+
+
+    if(properties.CLIPPLANES)
+    {
+        shader += "vec3 cappingColor = calculateClipPlanes();\n";
+    }
 	
 	//Init color. In the fragment shader we are treating color linear by
     //gamma-adjusting actively before doing lighting computations. At the end
@@ -535,6 +639,45 @@ x3dom.shader.DynamicShader.prototype.generateFragmentShader = function(gl, prope
     shader += "vec4 color;\n";
 	shader += "color.rgb = " + x3dom.shader.decodeGamma(properties, "diffuseColor") + ";\n";
 	shader += "color.a = 1.0 - transparency;\n";
+
+    shader += "vec3 _emissiveColor     = emissiveColor;\n";
+    shader += "float _shininess        = shininess;\n";
+    shader += "vec3 _specularColor     = specularColor;\n";
+    shader += "float _ambientIntensity = ambientIntensity;\n";
+	shader += "float _transparency     = transparency;\n";
+
+    if (properties.MULTIVISMAP || properties.MULTIDIFFALPMAP || properties.MULTISPECSHINMAP || properties.MULTIEMIAMBMAP) {
+        shader += "vec2 idCoord;\n";
+        shader += "float roundedIDVisibility = floor(fragID+0.5);\n";
+        shader += "float roundedIDMaterial = floor(fragID+0.5);\n";
+        shader += "if(!gl_FrontFacing) {\n";
+        shader += "    roundedIDMaterial = floor(fragID + (multiDiffuseAlphaWidth*multiDiffuseAlphaWidth) + 0.5);\n";
+        shader += "}\n";
+    }
+
+    if (properties.MULTIVISMAP) {
+        shader += "idCoord.x = mod(roundedIDVisibility, multiVisibilityWidth) * (1.0 / multiVisibilityWidth) + (0.5 / multiVisibilityWidth);\n";
+        shader += "idCoord.y = floor(roundedIDVisibility / multiVisibilityWidth) * (1.0 / multiVisibilityHeight) + (0.5 / multiVisibilityHeight);\n";
+        shader += "vec4 visibility = texture2D( multiVisibilityMap, idCoord );\n";
+        shader += "if (visibility.r < 1.0) discard; \n";
+    }
+
+    if (properties.MULTIDIFFALPMAP) {
+        shader += "idCoord.x = mod(roundedIDMaterial, multiDiffuseAlphaWidth) * (1.0 / multiDiffuseAlphaWidth) + (0.5 / multiDiffuseAlphaWidth);\n";
+        shader += "idCoord.y = floor(roundedIDMaterial / multiDiffuseAlphaWidth) * (1.0 / multiDiffuseAlphaHeight) + (0.5 / multiDiffuseAlphaHeight);\n";
+        shader += "vec4 diffAlpha = texture2D( multiDiffuseAlphaMap, idCoord );\n";
+        shader += "color.rgb = " + x3dom.shader.decodeGamma(properties, "diffAlpha.rgb") + ";\n";
+		shader += "_transparency = 1.0 - diffAlpha.a;\n";
+        shader += "color.a = diffAlpha.a;\n";
+    }
+
+    if (properties.MULTIEMIAMBMAP) {
+        shader += "idCoord.x = mod(roundedIDMaterial, multiDiffuseAlphaWidth) * (1.0 / multiDiffuseAlphaWidth) + (0.5 / multiDiffuseAlphaWidth);\n";
+        shader += "idCoord.y = floor(roundedIDMaterial / multiDiffuseAlphaWidth) * (1.0 / multiDiffuseAlphaHeight) + (0.5 / multiDiffuseAlphaHeight);\n";
+        shader += "vec4 emiAmb = texture2D( multiEmissiveAmbientMap, idCoord );\n";
+        shader += "_emissiveColor = emiAmb.rgb;\n";
+        shader += "_ambientIntensity = emiAmb.a;\n";
+    }
 			
 	if(properties.VERTEXCOLOR) {
 		if(properties.COLCOMPONENTS === 3){
@@ -548,35 +691,86 @@ x3dom.shader.DynamicShader.prototype.generateFragmentShader = function(gl, prope
 		shader += "vec3 ambient   = vec3(0.0, 0.0, 0.0);\n";
 		shader += "vec3 diffuse   = vec3(0.0, 0.0, 0.0);\n";
 		shader += "vec3 specular  = vec3(0.0, 0.0, 0.0);\n";
-		shader += "vec3 normal 	  = normalize(fragNormal);\n";
-		shader += "vec3 eye 	  = -fragPosition;\n";
-		
+        shader += "vec3 eye;\n";
+        shader += "if ( isOrthoView > 0.0 ) {\n";
+        shader += "    eye = vec3(0.0, 0.0, 1.0);\n";
+        shader += "} else {\n";
+        shader += "    eye = -fragPosition.xyz;\n";
+        shader += "}\n";
+
+		if(properties.NORMALMAP && properties.NORMALSPACE == "OBJECT") {
+			shader += "vec3 normal  = vec3(0.0, 0.0, 0.0);\n";
+		} else {
+			shader += "vec3 normal 	  = normalize(fragNormal);\n";
+		}
+
 		//Normalmap
 		if(properties.NORMALMAP){
-			shader += "vec3 n = normalize( fragNormal );\n";
 
-            if (x3dom.caps.STD_DERIVATIVES) {
-                shader += "normal = perturb_normal( n, fragPosition, vec2(fragTexcoord.x, 1.0-fragTexcoord.y) );\n";
-            } else {
-                shader += "vec3 t = normalize( fragTangent );\n";
-                shader += "vec3 b = normalize( fragBinormal );\n";
-                shader += "mat3 tangentToWorld = mat3(t, b, n);\n";
+			if(properties.NORMALSPACE == "TANGENT") {
 
-                shader += "normal = texture2D( normalMap, vec2(fragTexcoord.x, 1.0-fragTexcoord.y) ).rgb;\n";
-                shader += "normal = 2.0 * normal - 1.0;\n";
-                shader += "normal = normalize( normal * tangentToWorld );\n";
+				shader += "vec3 n = normal;\n";
 
-                shader += "normal.y = -normal.y;\n";
-                shader += "normal.x = -normal.x;\n";
-            }
+				if (x3dom.caps.STD_DERIVATIVES) {
+					shader += "normal = perturb_normal( n, fragPosition.xyz, vec2(fragTexcoord.x, 1.0-fragTexcoord.y) );\n";
+				} else {
+					shader += "vec3 t = normalize( fragTangent );\n";
+					shader += "vec3 b = normalize( fragBinormal );\n";
+					shader += "mat3 tangentToWorld = mat3(t, b, n);\n";
+
+					shader += "normal = texture2D( normalMap, vec2(fragTexcoord.x, 1.0-fragTexcoord.y) ).rgb;\n";
+					shader += "normal = 2.0 * normal - 1.0;\n";
+					shader += "normal = normalize( normal * tangentToWorld );\n";
+
+					shader += "normal.y = -normal.y;\n";
+					shader += "normal.x = -normal.x;\n";
+				}
+
+			} else if(properties.NORMALSPACE == "OBJECT") {
+				shader += "normal = texture2D( normalMap, vec2(fragTexcoord.x, 1.0-fragTexcoord.y) ).rgb;\n";
+				shader += "normal = 2.0 * normal - 1.0;\n";
+				shader += "normal = (normalMatrix * vec4(normal, 0.0)).xyz;\n";
+				shader += "normal = normalize(normal);\n";
+			}
+
 		}
+
+        if(properties.SHINMAP){
+            shader += "_shininess = texture2D( shininessMap, vec2(fragTexcoord.x, 1.0-fragTexcoord.y) ).r;\n";
+        }
+
+        //Specularmap
+        if(properties.SPECMAP) {
+            shader += "_specularColor = " + x3dom.shader.decodeGamma(properties, "texture2D(specularMap, vec2(fragTexcoord.x, 1.0-fragTexcoord.y)).rgb") + ";\n";
+        }
+
+        if (properties.MULTISPECSHINMAP) {
+            shader += "idCoord.x = mod(roundedIDMaterial, multiSpecularShininessWidth) * (1.0 / multiSpecularShininessWidth) + (0.5 / multiSpecularShininessWidth);\n";
+            shader += "idCoord.y = floor(roundedIDMaterial / multiSpecularShininessWidth) * (1.0 / multiSpecularShininessHeight) + (0.5 / multiSpecularShininessHeight);\n";
+            shader += "vec4 specShin = texture2D( multiSpecularShininessMap, idCoord );\n";
+            shader += "_specularColor = specShin.rgb;\n";
+            shader += "_shininess = specShin.a;\n";
+        }
 		
 		//Solid
-		if(!properties.SOLID) {
+		if(!properties.SOLID || properties.TWOSIDEDMAT) {
 			shader += "if (dot(normal, eye) < 0.0) {\n";
 			shader += "  normal *= -1.0;\n";
-			shader += "}\n";
+            shader += "}\n";
 		}
+
+        if(properties.SEPARATEBACKMAT) {
+            shader += "  if(!gl_FrontFacing) {\n";
+            shader += "    color.rgb = " + x3dom.shader.decodeGamma(properties, "backDiffuseColor") + ";\n";
+            shader += "    color.a = 1.0 - backTransparency;\n";
+			shader += "    _transparency = 1.0 - backTransparency;\n";
+            shader += "    _shininess = backShininess;\n";
+            shader += "    _emissiveColor = backEmissiveColor;\n";
+            shader += "    _specularColor = backSpecularColor;\n";
+            shader += "    _ambientIntensity = backAmbientIntensity;\n";
+            shader += "  }\n";
+        }
+
 		
 		//Calculate lights
         if (properties.LIGHTS) {
@@ -594,94 +788,130 @@ x3dom.shader.DynamicShader.prototype.generateFragmentShader = function(gl, prope
                                     "light"+l+"_AmbientIntensity, " +
                                     "light"+l+"_BeamWidth, " +
                                     "light"+l+"_CutOffAngle, " +
-                                    "normal, eye);\n";
+                                    "normal, eye, _shininess, _ambientIntensity);\n";
                 shader += "   ambient  += " + lightCol + " * ads.r;\n" +
                           "   diffuse  += " + lightCol + " * ads.g;\n" +
                           "   specular += " + lightCol + " * ads.b;\n";
             }
 
-            shader += "ambient = clamp(ambient, 0.0, 1.0);\n";
-            shader += "diffuse = clamp(diffuse, 0.0, 1.0);\n";
-            shader += "specular = clamp(specular, 0.0, 1.0);\n";
+            shader += "ambient = max(ambient, 0.0);\n";
+            shader += "diffuse = max(diffuse, 0.0);\n";
+            shader += "specular = max(specular, 0.0);\n";
         }
 		
-		//Specularmap
-		if(properties.SPECMAP) {
-			shader += "specular *= " + x3dom.shader.decodeGamma(properties, "texture2D(specularMap, vec2(fragTexcoord.x, 1.0-fragTexcoord.y)).rgb") + ";\n";
-		}
-		
 		//Textures
-		if(properties.TEXTURED || properties.DIFFUSEMAP || properties.DIFFPLACEMENTMAP){
+		if(properties.TEXTURED && ( properties.DIFFUSEMAP || properties.DIFFPLACEMENTMAP || properties.TEXT || properties.CUBEMAP)){
 			if(properties.CUBEMAP) {
 				shader += "vec3 viewDir = normalize(fragViewDir);\n";
-				shader += "vec3 reflected = reflect(viewDir, normal);\n";
-				shader += "reflected = (modelViewMatrixInverse * vec4(reflected,0.0)).xyz;\n";
-				shader += "vec4 texColor = " + x3dom.shader.decodeGamma(properties, "textureCube(cubeMap, reflected)") + ";\n";
-				shader += "color.a *= texColor.a;\n";
+				shader += "vec3 reflected = reflect(-eye, normal);\n";
+				shader += "reflected = (modelViewMatrixInverse * vec4(reflected, 0.0)).xyz;\n";
+				shader += "vec4 envColor = " + x3dom.shader.decodeGamma(properties, "textureCube(environmentMap, reflected)") + ";\n";
+				shader += "color.a *= envColor.a;\n";
 			}
-            else if (properties.DIFFPLACEMENTMAP)
+
+			if (properties.DIFFPLACEMENTMAP)
             {
                 shader += "vec2 texCoord = vec2(fragTexcoord.x, 1.0-fragTexcoord.y);\n";
                 shader += "vec4 texColor = texture2D(diffuseDisplacementMap, texCoord);\n";
             }
-            else
+            else if(properties.DIFFUSEMAP || properties.TEXT)
             {
-				shader += "vec2 texCoord = vec2(fragTexcoord.x, 1.0-fragTexcoord.y);\n";
+                if (properties.PIXELTEX) {
+                    shader += "vec2 texCoord = fragTexcoord;\n";
+                } else {
+                    shader += "vec2 texCoord = vec2(fragTexcoord.x, 1.0-fragTexcoord.y);\n";
+                }
 				shader += "vec4 texColor = " + x3dom.shader.decodeGamma(properties, "texture2D(diffuseMap, texCoord)") + ";\n";
 				shader += "color.a *= texColor.a;\n";
 			}
+
 			if(properties.BLENDING){
-				shader += "color.rgb = (emissiveColor + clamp(ambient + diffuse, 0.0, 1.0) * color.rgb + specular*specularColor);\n";
-				if(properties.CUBEMAP) {
-					shader += "color.rgb = mix(color.rgb, texColor.rgb, vec3(0.75));\n";
-				} else {
+				shader += "color.rgb = (_emissiveColor + max(ambient + diffuse, 0.0) * color.rgb + specular*_specularColor);\n";
+
+				if(properties.DIFFUSEMAP || properties.TEXT) {
 					shader += "color.rgb *= texColor.rgb;\n";
 				}
+				if(properties.CUBEMAP) {
+					if(properties.CSSHADER) {
+						shader += "color.rgb *= mix(vec3(1.0,1.0,1.0), envColor.rgb, environmentFactor);\n";
+					}else{
+						shader += "color.rgb *= envColor.rgb;\n";
+					}
+				}
 			}else{
-				shader += "color.rgb = (emissiveColor + clamp(ambient + diffuse, 0.0, 1.0) * texColor.rgb + specular*specularColor);\n";
+				shader += "color.rgb = (_emissiveColor + max(ambient + diffuse, 0.0) * texColor.rgb + specular*_specularColor);\n";
 			}
 		}else{
-			shader += "color.rgb = (emissiveColor + clamp(ambient + diffuse, 0.0, 1.0) * color.rgb + specular*specularColor);\n";
+			shader += "color.rgb = (_emissiveColor + max(ambient + diffuse, 0.0) * color.rgb + specular*_specularColor);\n";
 		}
 		
 	} else {
-		if (properties.APPMAT && !properties.VERTEXCOLOR) {
-			shader += "color = vec4(0.0, 0.0, 0.0, 1.0 - transparency);\n";
+		if (properties.APPMAT && !properties.VERTEXCOLOR && !properties.TEXTURED) {
+			shader += "color = vec4(0.0, 0.0, 0.0, 1.0 - _transparency);\n";
 		}
 		
-		if(properties.TEXTURED || properties.DIFFUSEMAP){
-			shader += "vec2 texCoord = vec2(fragTexcoord.x, 1.0-fragTexcoord.y);\n";
-			shader += "vec4 texColor = " + x3dom.shader.decodeGamma(properties, "texture2D(diffuseMap, texCoord)") + ";\n";
-			shader += "color.a = texColor.a;\n";
-			if(properties.BLENDING){
-				shader += "color.rgb += emissiveColor.rgb;\n";
+		if(properties.TEXTURED && ( properties.DIFFUSEMAP || properties.DIFFPLACEMENTMAP || properties.TEXT )){
+            if (properties.PIXELTEX) {
+                shader += "vec2 texCoord = fragTexcoord;\n";
+            } else {
+                shader += "vec2 texCoord = vec2(fragTexcoord.x, 1.0-fragTexcoord.y);\n";
+            }
+
+            if (properties.IS_PARTICLE) {
+                shader += "texCoord = clamp(gl_PointCoord, 0.01, 0.99);\n";
+            }
+            shader += "vec4 texColor = " + x3dom.shader.decodeGamma(properties, "texture2D(diffuseMap, texCoord)") + ";\n";
+            shader += "color.a = texColor.a;\n";
+
+			if(properties.BLENDING || properties.IS_PARTICLE){
+				shader += "color.rgb += _emissiveColor.rgb;\n";
 				shader += "color.rgb *= texColor.rgb;\n";
 			} else {
 				shader += "color = texColor;\n";
 			}
 		} else if(!properties.VERTEXCOLOR && !properties.POINTLINE2D){
-			shader += "color.rgb += emissiveColor;\n";
+			shader += "color.rgb += _emissiveColor;\n";
 		} else if(!properties.VERTEXCOLOR && properties.POINTLINE2D){
-			shader += "color.rgb = emissiveColor;\n";
-		}
+			shader += "color.rgb = _emissiveColor;\n";
+            if (properties.IS_PARTICLE) {
+                shader += "float pAlpha = 1.0 - clamp(length((gl_PointCoord - 0.5) * 2.0), 0.0, 1.0);\n";
+                shader += "color.rgb *= vec3(pAlpha);\n";
+                shader += "color.a = pAlpha;\n";
+            }
+		} else if (properties.IS_PARTICLE) {
+            shader += "float pAlpha = 1.0 - clamp(length((gl_PointCoord - 0.5) * 2.0), 0.0, 1.0);\n";
+            shader += "color.rgb *= vec3(pAlpha);\n";
+            shader += "color.a = pAlpha;\n";
+        }
 	}
+
+    if(properties.CLIPPLANES)
+    {
+        shader += "if (cappingColor.r != -1.0) {\n";
+        shader += "    color.rgb = cappingColor;\n";
+        shader += "}\n";
+    }
+
+	//Kill pixel
+	if(properties.TEXT) {
+		shader += "if (color.a <= 0.5) discard;\n";
+	} else {
+		shader += "if (color.a <= " + properties.ALPHATHRESHOLD + ") discard;\n";
+	}
+
+
+
+    //Output the gamma encoded result.
+    shader += "color = clamp(color, 0.0, 1.0);\n";
+    shader += "color = " + x3dom.shader.encodeGamma(properties, "color") + ";\n";
 	
 	//Fog
 	if(properties.FOG){
 		shader += "float f0 = calcFog(fragEyePosition);\n";
 		shader += "color.rgb = fogColor * (1.0-f0) + f0 * (color.rgb);\n";
 	}
-	
-	//Kill pixel
-	if(properties.TEXT) {
-		shader += "if (color.a <= 0.5) discard;\n";
-	} else {
-		shader += "if (color.a <= 0.1) discard;\n";
-	}
 
-    //Output the gamma encoded result.
-    shader += "color = clamp(color, 0.0, 1.0);\n";
-    shader += "gl_FragColor = " + x3dom.shader.encodeGamma(properties, "color") + ";\n";
+    shader += "gl_FragColor = color;\n";
 	
 	//End Of Shader
 	shader += "}\n";
